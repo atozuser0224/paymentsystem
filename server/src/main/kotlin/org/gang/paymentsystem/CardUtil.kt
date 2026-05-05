@@ -1,4 +1,4 @@
-package org.gang
+package org.gang.paymentsystem
 
 import org.mindrot.jbcrypt.BCrypt
 import java.util.Locale

@@ -1,2 +1,101 @@
 package org.gang.paymentsystem
 
+import io.ktor.client.*
+import io.ktor.client.call.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
+import kotlinx.serialization.json.Json
+
+class PaymentApi(var baseUrl: String = "http://10.0.2.2:8080") {
+
+    private val client = HttpClient {
+        install(ContentNegotiation) {
+            json(Json {
+                ignoreUnknownKeys = true
+                prettyPrint = true
+            })
+        }
+    }
+
+    suspend fun registerOrFetchCard(userName: String, uuid: String, initialCredit: Long): Any {
+        val response = client.post("$baseUrl/register") {
+            contentType(ContentType.Application.Json)
+            setBody(CardData(userName, uuid, initialCredit))
+        }
+        return if (response.status == HttpStatusCode.OK) {
+            try {
+                response.body<CardDTO>()
+            } catch (e: Exception) {
+                response.body<String>()
+            }
+        } else {
+            throw Exception("Error: ${response.status}, ${response.body<String>()}")
+        }
+    }
+
+    suspend fun buy(uuid: String, amount: Long): CardDTO {
+        val response = client.post("$baseUrl/buy") {
+            contentType(ContentType.Application.Json)
+            setBody(BuyDto(uuid, amount))
+        }
+        return when (response.status) {
+            HttpStatusCode.OK -> response.body<CardDTO>()
+            HttpStatusCode.PayloadTooLarge -> throw Exception("잔액이 부족합니다.")
+            else -> throw Exception("결제 실패: ${response.body<String>()}")
+        }
+    }
+
+    suspend fun addCredit(uuid: String, amount: Long): CardDTO {
+        val response = client.post("$baseUrl/add") {
+            contentType(ContentType.Application.Json)
+            setBody(BuyDto(uuid, amount))
+        }
+        if (response.status == HttpStatusCode.OK) {
+            return response.body<CardDTO>()
+        } else {
+            throw Exception("입금 실패: ${response.body<String>()}")
+        }
+    }
+
+    suspend fun sendTransaction(request: TransactionRequest): TransactionDTO {
+        val response = client.post("$baseUrl/transaction") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+        return when (response.status) {
+            HttpStatusCode.OK -> response.body<TransactionDTO>()
+            HttpStatusCode.PayloadTooLarge -> throw Exception("잔액이 부족합니다.")
+            else -> throw Exception("거래 실패: ${response.body<String>()}")
+        }
+    }
+
+    suspend fun getTransactions(uuid: String? = null): List<TransactionDTO> {
+        val url = if (uuid != null) "$baseUrl/transactions/$uuid" else "$baseUrl/transactions"
+        val response = client.get(url)
+        return if (response.status == HttpStatusCode.OK) {
+            response.body<List<TransactionDTO>>()
+        } else {
+            emptyList()
+        }
+    }
+
+    suspend fun getAdminSummary(): AdminSummary {
+        val response = client.get("$baseUrl/admin/summary")
+        return if (response.status == HttpStatusCode.OK) {
+            response.body<AdminSummary>()
+        } else {
+            AdminSummary()
+        }
+    }
+
+    suspend fun deleteCard(uuid: String): Boolean {
+        val response = client.delete("$baseUrl/card/$uuid")
+        return response.status == HttpStatusCode.NoContent
+    }
+
+    fun close() {
+        client.close()
+    }
+}
