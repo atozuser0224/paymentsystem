@@ -11,43 +11,44 @@ import java.io.OutputStream
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
-class BluetoothManager : BluetoothPlatform {
+class BluetoothManager : DevicePlatform {
     companion object {
         private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     }
 
-    private val _state = MutableStateFlow<BluetoothUiState>(BluetoothUiState.Disconnected)
-    override val state: StateFlow<BluetoothUiState> = _state
+    private val _state = MutableStateFlow<DeviceUiState>(DeviceUiState.Disconnected)
+    override val state: StateFlow<DeviceUiState> = _state
 
     private var socket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
     private var readJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    override fun getPairedDeviceNames(): List<String> {
+    override fun getAvailableDeviceNames(): List<String> {
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: return emptyList()
         return adapter.bondedDevices
             .filter { it.name?.contains("HC-0", ignoreCase = true) == true
-                    || it.name?.contains("BT", ignoreCase = true) == true }
+                    || it.name?.contains("BT", ignoreCase = true) == true
+                    || it.name?.contains("HM-", ignoreCase = true) == true }
             .map { it.name ?: it.address }
             .toList()
     }
 
     override fun connect(deviceName: String) {
-        if (_state.value is BluetoothUiState.Connecting) return
+        if (_state.value is DeviceUiState.Connecting) return
 
         val adapter = BluetoothAdapter.getDefaultAdapter()
         val device = adapter?.bondedDevices?.find {
             (it.name ?: it.address) == deviceName
         } ?: run {
-            _state.value = BluetoothUiState.Error("기기를 찾을 수 없습니다: $deviceName")
+            _state.value = DeviceUiState.Error("기기를 찾을 수 없습니다: $deviceName")
             return
         }
         connectDevice(device)
     }
 
     private fun connectDevice(device: BluetoothDevice) {
-        _state.value = BluetoothUiState.Connecting
+        _state.value = DeviceUiState.Connecting
 
         readJob?.cancel()
         socket?.close()
@@ -61,11 +62,11 @@ class BluetoothManager : BluetoothPlatform {
                 socket?.connect()
                 outputStream = socket?.outputStream
 
-                _state.value = BluetoothUiState.Connected(device.name ?: "Unknown")
+                _state.value = DeviceUiState.Connected(device.name ?: "Unknown")
 
                 readJob = launch { readLoop(socket!!.inputStream) }
             } catch (e: Exception) {
-                _state.value = BluetoothUiState.Error("연결 실패: ${e.message}")
+                _state.value = DeviceUiState.Error("연결 실패: ${e.message}")
                 disconnect()
             }
         }
@@ -80,7 +81,7 @@ class BluetoothManager : BluetoothPlatform {
         } catch (_: Exception) { }
         socket = null
         outputStream = null
-        _state.value = BluetoothUiState.Disconnected
+        _state.value = DeviceUiState.Disconnected
     }
 
     override fun sendResponse(success: Boolean) {
@@ -89,7 +90,7 @@ class BluetoothManager : BluetoothPlatform {
             outputStream?.write(msg.toByteArray())
             outputStream?.flush()
         } catch (e: Exception) {
-            _state.value = BluetoothUiState.Error("전송 실패: ${e.message}")
+            _state.value = DeviceUiState.Error("전송 실패: ${e.message}")
         }
     }
 
@@ -115,13 +116,23 @@ class BluetoothManager : BluetoothPlatform {
                     if (line.startsWith("RFID:")) {
                         val uid = line.removePrefix("RFID:").trim()
                         if (uid.isNotEmpty()) {
-                            _state.value = BluetoothUiState.CardRead(uid)
+                            _state.value = DeviceUiState.CardRead(uid)
+                        }
+                    } else if (line.startsWith("TRANS:")) {
+                        val parts = line.removePrefix("TRANS:").split(",")
+                        if (parts.size >= 3) {
+                            val uid = parts[0].trim()
+                            val amount = parts[1].toLongOrNull()
+                            val type = parts[2].trim()
+                            if (uid.isNotEmpty() && amount != null && type.isNotEmpty()) {
+                                _state.value = DeviceUiState.TransactionRead(uid, amount, type)
+                            }
                         }
                     }
                 }
             } catch (e: Exception) {
                 if (coroutineContext.isActive) {
-                    _state.value = BluetoothUiState.Error("연결 끊김: ${e.message}")
+                    _state.value = DeviceUiState.Error("연결 끊김: ${e.message}")
                 }
                 break
             }

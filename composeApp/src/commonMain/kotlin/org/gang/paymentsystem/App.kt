@@ -18,14 +18,14 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun App(
-    bluetoothPlatform: BluetoothPlatform? = null,
+    devicePlatform: DevicePlatform? = null,
     locationPlatform: LocationPlatform? = null
 ) {
     val scope = rememberCoroutineScope()
     val api = remember { PaymentApi() }
 
     // ── State ──
-    var bluetoothDevices by remember { mutableStateOf<List<String>>(emptyList()) }
+    var deviceList by remember { mutableStateOf<List<String>>(emptyList()) }
     var showDeviceDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var serverUrl by remember { mutableStateOf(api.baseUrl) }
@@ -38,12 +38,12 @@ fun App(
     var currentLocation by remember { mutableStateOf<LocationData?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
 
-    val btState by (bluetoothPlatform?.state?.collectAsState()
-        ?: remember { mutableStateOf(BluetoothUiState.Disconnected) })
+    val deviceState by (devicePlatform?.state?.collectAsState()
+        ?: remember { mutableStateOf(DeviceUiState.Disconnected) })
 
     // ── Auto-fetch location on connect ──
-    LaunchedEffect(btState) {
-        if (btState is BluetoothUiState.Connected && currentLocation == null) {
+    LaunchedEffect(deviceState) {
+        if (deviceState is DeviceUiState.Connected && currentLocation == null) {
             try {
                 currentLocation = locationPlatform?.getCurrentLocation()
             } catch (_: Exception) { }
@@ -51,9 +51,9 @@ fun App(
     }
 
     // ── Handle RFID card reads from Arduino ──
-    LaunchedEffect(btState) {
-        if (btState is BluetoothUiState.CardRead) {
-            val uid = (btState as BluetoothUiState.CardRead).uid
+    LaunchedEffect(deviceState) {
+        if (deviceState is DeviceUiState.CardRead) {
+            val uid = (deviceState as DeviceUiState.CardRead).uid
             uuidInput = uid
             isProcessing = true
             try {
@@ -72,6 +72,44 @@ fun App(
                 resultText = "카드 조회 실패"
                 resultSuccess = false
             } finally {
+                isProcessing = false
+            }
+        }
+    }
+
+    // ── Handle IR remote transactions from Arduino (PN532 + IR) ──
+    LaunchedEffect(deviceState) {
+        if (deviceState is DeviceUiState.TransactionRead) {
+            val tx = deviceState as DeviceUiState.TransactionRead
+            uuidInput = tx.uid
+            amountText = tx.amount.toString()
+            isProcessing = true
+            try {
+                val res = api.registerOrFetchCard("", tx.uid, 0L)
+                val name: String
+                val balance: Long
+                if (res is CardDTO) {
+                    name = res.userName
+                    balance = res.credit
+                    userName = name
+                    currentBalance = balance
+                } else {
+                    name = "사용자"
+                    balance = 0L
+                    currentBalance = balance
+                }
+                executeTransaction(
+                    scope, api, devicePlatform,
+                    tx.uid, name, tx.amount.toString(),
+                    currentLocation, tx.type, balance,
+                    { r, s -> resultText = r; resultSuccess = s },
+                    { b -> currentBalance = b },
+                    { p -> isProcessing = p }
+                )
+            } catch (e: Exception) {
+                resultText = "거래 실패: ${e.message}"
+                resultSuccess = false
+                devicePlatform?.sendResponse(false)
                 isProcessing = false
             }
         }
@@ -131,20 +169,20 @@ fun App(
                                 .size(10.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    when (btState) {
-                                        is BluetoothUiState.Connected,
-                                        is BluetoothUiState.CardRead -> Color(0xFF4CAF50)
-                                        is BluetoothUiState.Connecting -> Color(0xFFFFC107)
+                                    when (deviceState) {
+                                        is DeviceUiState.Connected,
+                                        is DeviceUiState.CardRead -> Color(0xFF4CAF50)
+                                        is DeviceUiState.Connecting -> Color(0xFFFFC107)
                                         else -> Color(0xFFF44336)
                                     }
                                 )
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            when (btState) {
-                                is BluetoothUiState.Connected -> "연결됨"
-                                is BluetoothUiState.CardRead -> "연결됨"
-                                is BluetoothUiState.Connecting -> "연결중..."
+                            when (deviceState) {
+                                is DeviceUiState.Connected -> "연결됨"
+                                is DeviceUiState.CardRead -> "연결됨"
+                                is DeviceUiState.Connecting -> "연결중..."
                                 else -> "미연결"
                             },
                             fontSize = 13.sp,
@@ -260,7 +298,7 @@ fun App(
                     Button(
                         onClick = {
                             executeTransaction(
-                                scope, api, bluetoothPlatform,
+                                scope, api, devicePlatform,
                                 uuidInput, userName, amountText, currentLocation,
                                 "WITHDRAW", currentBalance,
                                 { r, s -> resultText = r; resultSuccess = s },
@@ -271,7 +309,7 @@ fun App(
                         modifier = Modifier
                             .weight(1f)
                             .height(72.dp),
-                        enabled = canTransact(uuidInput, amountText, btState, isProcessing),
+                        enabled = canTransact(uuidInput, amountText, deviceState, isProcessing),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error
@@ -287,7 +325,7 @@ fun App(
                     Button(
                         onClick = {
                             executeTransaction(
-                                scope, api, bluetoothPlatform,
+                                scope, api, devicePlatform,
                                 uuidInput, userName, amountText, currentLocation,
                                 "DEPOSIT", currentBalance,
                                 { r, s -> resultText = r; resultSuccess = s },
@@ -298,7 +336,7 @@ fun App(
                         modifier = Modifier
                             .weight(1f)
                             .height(72.dp),
-                        enabled = canTransact(uuidInput, amountText, btState, isProcessing),
+                        enabled = canTransact(uuidInput, amountText, deviceState, isProcessing),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFF1565C0)
@@ -405,22 +443,22 @@ fun App(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            if (btState is BluetoothUiState.Connected ||
-                                btState is BluetoothUiState.CardRead
+                            if (deviceState is DeviceUiState.Connected ||
+                                deviceState is DeviceUiState.CardRead
                             ) {
-                                bluetoothPlatform?.disconnect()
+                                devicePlatform?.disconnect()
                             } else {
-                                bluetoothPlatform?.getPairedDeviceNames()?.let {
-                                    bluetoothDevices = it
+                                devicePlatform?.getAvailableDeviceNames()?.let {
+                                    deviceList = it
                                     showDeviceDialog = true
                                 }
                             }
                         },
-                        enabled = bluetoothPlatform != null && !isProcessing
+                        enabled = devicePlatform != null && !isProcessing
                     ) {
                         Text(
-                            if (btState is BluetoothUiState.Connected) "블루투스 해제"
-                            else "블루투스 연결"
+                            if (deviceState is DeviceUiState.Connected) "연결 해제"
+                            else "기기 연결"
                         )
                     }
                 }
@@ -437,17 +475,17 @@ fun App(
     if (showDeviceDialog) {
         AlertDialog(
             onDismissRequest = { showDeviceDialog = false },
-            title = { Text("블루투스 기기 선택") },
+            title = { Text("기기 연결") },
             text = {
-                if (bluetoothDevices.isEmpty()) {
-                    Text("페어링된 블루투스 기기가 없습니다.\n안드로이드 설정에서 HC-05/HC-06을 먼저 페어링해주세요.")
+                if (deviceList.isEmpty()) {
+                    Text("연결 가능한 기기가 없습니다.\n안드로이드: HC-05/HC-06/HM-10을 페어링해주세요.\n데스크탑: 아두이노를 USB로 연결해주세요.")
                 } else {
                     Column {
-                        bluetoothDevices.forEach { device ->
+                        deviceList.forEach { device ->
                             TextButton(
                                 onClick = {
                                     showDeviceDialog = false
-                                    bluetoothPlatform?.connect(device)
+                                    devicePlatform?.connect(device)
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text(device) }
@@ -506,20 +544,20 @@ fun App(
 private fun canTransact(
     uuid: String,
     amount: String,
-    btState: BluetoothUiState,
+    deviceState: DeviceUiState,
     isProcessing: Boolean
 ): Boolean {
     return uuid.isNotBlank() &&
             amount.isNotBlank() &&
             (amount.toLongOrNull() ?: 0) > 0 &&
-            (btState is BluetoothUiState.Connected || btState is BluetoothUiState.CardRead) &&
+            (deviceState is DeviceUiState.Connected || deviceState is DeviceUiState.CardRead) &&
             !isProcessing
 }
 
 private fun executeTransaction(
     scope: kotlinx.coroutines.CoroutineScope,
     api: PaymentApi,
-    bt: BluetoothPlatform?,
+    bt: DevicePlatform?,
     uuid: String,
     userName: String,
     amountText: String,

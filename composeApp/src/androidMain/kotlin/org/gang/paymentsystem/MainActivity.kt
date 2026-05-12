@@ -12,7 +12,7 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
-    private val bluetoothManager = BluetoothManager()
+    private val devicePlatform = BluetoothManager()
     private val locationManager by lazy { LocationManager(this) }
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -51,14 +51,14 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             App(
-                bluetoothPlatform = bluetoothManager,
+                devicePlatform = devicePlatform,
                 locationPlatform = locationManager
             )
         }
     }
 
     override fun onDestroy() {
-        bluetoothManager.destroy()
+        devicePlatform.destroy()
         super.onDestroy()
     }
 }

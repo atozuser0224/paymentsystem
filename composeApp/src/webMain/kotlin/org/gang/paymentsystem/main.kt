@@ -7,7 +7,7 @@ import androidx.compose.ui.window.ComposeViewport
 fun main() {
     ComposeViewport {
         App(
-            bluetoothPlatform = StubBluetoothPlatform(),
+            devicePlatform = StubDevicePlatform(),
             locationPlatform = StubLocationPlatform()
         )
     }

@@ -61,6 +61,9 @@ kotlin {
 
             // 🔥 이 부분이 반드시 추가되어야 합니다 (데스크톱/Hot Reload용 엔진)
             implementation("io.ktor:ktor-client-cio:3.4.2")
+
+            // Serial port for Arduino communication
+            implementation("com.fazecast:jSerialComm:2.11.0")
         }
 
         // 안드로이드에서 실행할 때 필요한 엔진도 확인하세요

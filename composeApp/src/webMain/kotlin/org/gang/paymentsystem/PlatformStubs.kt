@@ -3,21 +3,21 @@ package org.gang.paymentsystem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-class StubBluetoothPlatform : BluetoothPlatform {
-    private val _state = MutableStateFlow<BluetoothUiState>(BluetoothUiState.Disconnected)
-    override val state: StateFlow<BluetoothUiState> = _state
+class StubDevicePlatform : DevicePlatform {
+    private val _state = MutableStateFlow<DeviceUiState>(DeviceUiState.Disconnected)
+    override val state: StateFlow<DeviceUiState> = _state
 
-    override fun getPairedDeviceNames(): List<String> {
-        _state.value = BluetoothUiState.Error("Bluetooth는 Android에서만 지원됩니다.")
+    override fun getAvailableDeviceNames(): List<String> {
+        _state.value = DeviceUiState.Error("이 플랫폼에서는 기기 연결을 지원하지 않습니다.")
         return emptyList()
     }
 
     override fun connect(deviceName: String) {
-        _state.value = BluetoothUiState.Error("Bluetooth는 Android에서만 지원됩니다.")
+        _state.value = DeviceUiState.Error("이 플랫폼에서는 기기 연결을 지원하지 않습니다.")
     }
 
     override fun disconnect() {
-        _state.value = BluetoothUiState.Disconnected
+        _state.value = DeviceUiState.Disconnected
     }
 
     override fun sendResponse(success: Boolean) { }
