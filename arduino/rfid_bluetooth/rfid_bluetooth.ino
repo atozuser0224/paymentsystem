@@ -18,7 +18,7 @@ String currentCardUid = "";           // 추가: 현재 인증된 카드의 UID
 
 // 추가: PN532 객체 (I2C 모드)
 #define PN532_IRQ   (7)
-#define PN532_RESET (3)
+#define PN532_RESET (4)   // 핀3은 BT_TX와 충돌 → 핀4로 변경
 Adafruit_PN532 nfc(PN532_IRQ, PN532_RESET);
 
 // 추가: HM-10 BLE 블루투스 (참조 코드와 동일)
@@ -136,7 +136,7 @@ void updateLCD() {
 void onCardDetected(uint8_t* uid, uint8_t uidLength) {
     currentCardUid = getUidString(uid, uidLength);
     
-    Serial.print(F("Card detected: "));
+    Serial.print(F("RFID:"));
     Serial.println(currentCardUid);
     
     // 추가: 카드 인식 환영 멜로디 재생!
@@ -294,12 +294,14 @@ void setup() {
     nfc.begin();
     uint32_t versiondata = nfc.getFirmwareVersion();
     if (!versiondata) {
-        Serial.println(F("PN532 not found!"));
+        Serial.println(F("PN532 not found! Check wiring."));
         lcd.clear();
         lcd.setCursor(0, 0);
         lcd.print("PN532 not found");
-        flashLed(LED_RED, 10, 100);
-        while (1);
+        lcd.setCursor(0, 1);
+        lcd.print("Check wiring");
+        // while(1) 제거: 멈추지 않고 LED로 에러 표시만 하고 계속 진행
+        flashLed(LED_RED, 5, 200);
     }
     Serial.print(F("PN532 Firmware: "));
     Serial.println(versiondata, HEX);
