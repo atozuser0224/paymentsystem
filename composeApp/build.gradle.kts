@@ -56,13 +56,22 @@ kotlin {
         }
 
         jvmMain.dependencies {
-            implementation(compose.desktop.currentOs)
+            // ARM64 대응: Windows ARM64만 compose.desktop.windows_arm64 아티팩트가
+            // 존재하지 않으므로 windows_x64로 폴백 (x86_64 JDK + Windows 에뮬레이션)
+            // Linux ARM64, macOS ARM64는 currentOs가 올바른 아티팩트를 찾음
+            val osName = System.getProperty("os.name").lowercase()
+            val osArch = System.getProperty("os.arch").lowercase()
+            if (osName.contains("win") && (osArch.contains("aarch64") || osArch.contains("arm"))) {
+                implementation(compose.desktop.windows_x64)
+            } else {
+                implementation(compose.desktop.currentOs)
+            }
             implementation(libs.kotlinx.coroutinesSwing)
 
             // 🔥 이 부분이 반드시 추가되어야 합니다 (데스크톱/Hot Reload용 엔진)
             implementation("io.ktor:ktor-client-cio:3.4.2")
 
-            // Serial port for Arduino communication
+            // Serial port for Arduino communication (ARM64 Windows 네이티브 라이브러리 포함)
             implementation("com.fazecast:jSerialComm:2.11.0")
         }
 
