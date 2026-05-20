@@ -15,6 +15,11 @@ class DesktopSerialManager : DevicePlatform {
     private var readJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    private fun log(msg: String) {
+        val ts = java.time.LocalTime.now().toString().substringBeforeLast(".")
+        println("[$ts] SerialManager: $msg")
+    }
+
     override fun getAvailableDeviceNames(): List<String> {
         return SerialPort.getCommPorts().map { port ->
             "${port.systemPortName} - ${port.descriptivePortName}"
@@ -26,6 +31,7 @@ class DesktopSerialManager : DevicePlatform {
 
         val portName = deviceName.split(" - ").firstOrNull()?.trim() ?: deviceName
         val port = SerialPort.getCommPort(portName)
+        log("연결 시도: $portName")
 
         connectPort(port)
     }
@@ -39,9 +45,13 @@ class DesktopSerialManager : DevicePlatform {
         scope.launch {
             try {
                 if (!port.openPort()) {
-                    _state.value = DeviceUiState.Error("포트 열기 실패: ${port.systemPortName}")
+                    val err = "포트 열기 실패: ${port.systemPortName}"
+                    log(err)
+                    _state.value = DeviceUiState.Error(err)
                     return@launch
                 }
+
+                log("포트 열림: ${port.systemPortName}")
 
                 port.setBaudRate(115200)
                 port.setNumDataBits(8)
@@ -49,21 +59,25 @@ class DesktopSerialManager : DevicePlatform {
                 port.setParity(SerialPort.NO_PARITY)
                 port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 2000, 0)
 
-                // Arduino Uno DTR 리셋 후 부트로더(1.5초) + 초기화 대기
+                log("아두이노 안정화 대기 2초...")
                 delay(2000)
 
                 serialPort = port
+                log("연결 완료: ${port.descriptivePortName}")
                 _state.value = DeviceUiState.Connected(port.descriptivePortName)
 
                 readJob = launch { readLoop(port) }
             } catch (e: Exception) {
-                _state.value = DeviceUiState.Error("연결 실패: ${e.message}")
+                val err = "연결 실패: ${e.message}"
+                log("ERROR: $err")
+                _state.value = DeviceUiState.Error(err)
                 disconnect()
             }
         }
     }
 
     override fun disconnect() {
+        log("연결 해제")
         readJob?.cancel()
         readJob = null
         try {
@@ -78,20 +92,27 @@ class DesktopSerialManager : DevicePlatform {
             val msg = if (success) "OK\n" else "ERR\n"
             serialPort?.outputStream?.write(msg.toByteArray())
             serialPort?.outputStream?.flush()
+            log("응답 전송: ${msg.trim()}")
         } catch (e: Exception) {
-            _state.value = DeviceUiState.Error("전송 실패: ${e.message}")
+            val err = "전송 실패: ${e.message}"
+            log("ERROR: $err")
+            _state.value = DeviceUiState.Error(err)
         }
     }
 
     private suspend fun readLoop(port: SerialPort) {
         val inputStream = port.inputStream
         val buffer = StringBuilder()
+        log("읽기 루프 시작")
 
         while (coroutineContext.isActive) {
             try {
                 val byteBuf = ByteArray(256)
                 val bytesRead = inputStream.read(byteBuf)
-                if (bytesRead == -1) break
+                if (bytesRead == -1) {
+                    log("스트림 종료 (bytesRead == -1)")
+                    break
+                }
 
                 val chunk = String(byteBuf, 0, bytesRead)
                 buffer.append(chunk)
@@ -106,6 +127,7 @@ class DesktopSerialManager : DevicePlatform {
                     if (line.startsWith("RFID:")) {
                         val uid = line.removePrefix("RFID:").trim()
                         if (uid.isNotEmpty()) {
+                            log("카드 읽음: $uid")
                             _state.value = DeviceUiState.CardRead(uid)
                         }
                     } else if (line.startsWith("TRANS:")) {
@@ -115,6 +137,7 @@ class DesktopSerialManager : DevicePlatform {
                             val amount = parts[1].toLongOrNull()
                             val type = parts[2].trim()
                             if (uid.isNotEmpty() && amount != null && type.isNotEmpty()) {
+                                log("거래 읽음: uid=$uid amount=$amount type=$type")
                                 _state.value = DeviceUiState.TransactionRead(uid, amount, type)
                             }
                         }
@@ -122,7 +145,9 @@ class DesktopSerialManager : DevicePlatform {
                 }
             } catch (e: Exception) {
                 if (coroutineContext.isActive) {
-                    _state.value = DeviceUiState.Error("연결 끊김: ${e.message}")
+                    val errMsg = "연결 끊김: ${e.message} (${e.javaClass.simpleName})"
+                    log("ERROR: $errMsg")
+                    _state.value = DeviceUiState.Error(errMsg)
                 }
                 break
             }
@@ -132,6 +157,7 @@ class DesktopSerialManager : DevicePlatform {
     }
 
     fun destroy() {
+        log("매니저 종료")
         disconnect()
         scope.cancel()
     }

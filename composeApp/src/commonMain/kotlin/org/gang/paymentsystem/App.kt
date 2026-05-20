@@ -183,10 +183,15 @@ fun App(
                                 is DeviceUiState.Connected -> "연결됨"
                                 is DeviceUiState.CardRead -> "연결됨"
                                 is DeviceUiState.Connecting -> "연결중..."
+                                is DeviceUiState.Error -> (deviceState as DeviceUiState.Error).message
                                 else -> "미연결"
                             },
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (deviceState is DeviceUiState.Error)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2
                         )
                     }
                     } // end settings+bluetooth row
