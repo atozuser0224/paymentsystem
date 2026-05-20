@@ -27,17 +27,7 @@ class DesktopSerialManager : DevicePlatform {
         val portName = deviceName.split(" - ").firstOrNull()?.trim() ?: deviceName
         val port = SerialPort.getCommPort(portName)
 
-        try {
-            if (!port.openPort()) {
-                _state.value = DeviceUiState.Error("포트를 찾을 수 없습니다: $portName")
-                port.closePort()
-                return
-            }
-            port.closePort()
-            connectPort(port)
-        } catch (e: Exception) {
-            _state.value = DeviceUiState.Error("포트 접근 실패: ${e.message}")
-        }
+        connectPort(port)
     }
 
     private fun connectPort(port: SerialPort) {
@@ -48,16 +38,19 @@ class DesktopSerialManager : DevicePlatform {
 
         scope.launch {
             try {
-                port.setBaudRate(9600)
+                if (!port.openPort()) {
+                    _state.value = DeviceUiState.Error("포트 열기 실패: ${port.systemPortName}")
+                    return@launch
+                }
+
+                port.setBaudRate(115200)
                 port.setNumDataBits(8)
                 port.setNumStopBits(SerialPort.ONE_STOP_BIT)
                 port.setParity(SerialPort.NO_PARITY)
                 port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 2000, 0)
 
-                if (!port.openPort()) {
-                    _state.value = DeviceUiState.Error("포트 열기 실패: ${port.systemPortName}")
-                    return@launch
-                }
+                // Arduino Uno DTR 리셋 후 부트로더(1.5초) + 초기화 대기
+                delay(2000)
 
                 serialPort = port
                 _state.value = DeviceUiState.Connected(port.descriptivePortName)
