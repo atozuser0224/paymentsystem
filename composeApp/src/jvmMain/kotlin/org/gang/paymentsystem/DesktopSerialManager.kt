@@ -67,7 +67,7 @@ class DesktopSerialManager : DevicePlatform {
                 port.setNumDataBits(8)
                 port.setNumStopBits(SerialPort.ONE_STOP_BIT)
                 port.setParity(SerialPort.NO_PARITY)
-                port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 2000, 0)
+                port.setComPortTimeouts(SerialPort.TIMEOUT_NONBLOCKING, 0, 0)
 
                 log("아두이노 안정화 대기 2초...")
                 delay(2000)
@@ -113,15 +113,16 @@ class DesktopSerialManager : DevicePlatform {
     private suspend fun readLoop(port: SerialPort) {
         val inputStream = port.inputStream
         val buffer = StringBuilder()
-        log("읽기 루프 시작")
+        log("읽기 루프 시작 (논블로킹)")
 
         while (coroutineContext.isActive) {
             try {
                 val byteBuf = ByteArray(256)
                 val bytesRead = inputStream.read(byteBuf)
-                if (bytesRead == -1) {
-                    log("스트림 종료 (bytesRead == -1)")
-                    break
+                if (bytesRead <= 0) {
+                    // 데이터 없음 → 잠시 대기 후 재시도
+                    delay(100)
+                    continue
                 }
 
                 val chunk = String(byteBuf, 0, bytesRead)
