@@ -15,9 +15,19 @@ class DesktopSerialManager : DevicePlatform {
     private var readJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    private val logFile by lazy {
+        val dir = java.io.File(System.getProperty("user.home"), "PaymentSystem")
+        dir.mkdirs()
+        java.io.File(dir, "serial-log.txt")
+    }
+
     private fun log(msg: String) {
-        val ts = java.time.LocalTime.now().toString().substringBeforeLast(".")
-        println("[$ts] SerialManager: $msg")
+        val ts = java.time.LocalDateTime.now().toString().replace("T", " ").substringBeforeLast(".")
+        val line = "[$ts] $msg"
+        try {
+            logFile.appendText(line + "\n")
+        } catch (_: Exception) { }
+        println(line)
     }
 
     override fun getAvailableDeviceNames(): List<String> {
