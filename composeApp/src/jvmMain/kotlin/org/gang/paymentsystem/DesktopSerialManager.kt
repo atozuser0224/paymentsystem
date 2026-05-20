@@ -67,7 +67,7 @@ class DesktopSerialManager : DevicePlatform {
                 port.setNumDataBits(8)
                 port.setNumStopBits(SerialPort.ONE_STOP_BIT)
                 port.setParity(SerialPort.NO_PARITY)
-                port.setComPortTimeouts(SerialPort.TIMEOUT_NONBLOCKING, 0, 0)
+                port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 5000, 0)
 
                 log("아두이노 안정화 대기 2초...")
                 delay(2000)
@@ -110,19 +110,24 @@ class DesktopSerialManager : DevicePlatform {
         }
     }
 
+    private fun isTimeoutException(e: Exception): Boolean {
+        val name = e.javaClass.simpleName.lowercase()
+        val msg = e.message?.lowercase() ?: ""
+        return name.contains("timeout") || msg.contains("timed out")
+    }
+
     private suspend fun readLoop(port: SerialPort) {
         val inputStream = port.inputStream
         val buffer = StringBuilder()
-        log("읽기 루프 시작 (논블로킹)")
+        log("읽기 루프 시작")
 
-        while (coroutineContext.isActive) {
+        loop@ while (coroutineContext.isActive) {
             try {
                 val byteBuf = ByteArray(256)
                 val bytesRead = inputStream.read(byteBuf)
                 if (bytesRead <= 0) {
-                    // 데이터 없음 → 잠시 대기 후 재시도
                     delay(100)
-                    continue
+                    continue@loop
                 }
 
                 val chunk = String(byteBuf, 0, bytesRead)
@@ -155,12 +160,18 @@ class DesktopSerialManager : DevicePlatform {
                     }
                 }
             } catch (e: Exception) {
-                if (coroutineContext.isActive) {
-                    val errMsg = "연결 끊김: ${e.message} (${e.javaClass.simpleName})"
-                    log("ERROR: $errMsg")
-                    _state.value = DeviceUiState.Error(errMsg)
+                if (!coroutineContext.isActive) break@loop
+
+                if (isTimeoutException(e)) {
+                    // 타임아웃은 정상 (아두이노가 데이터 전송 중이 아닐 때)
+                    delay(100)
+                    continue@loop
                 }
-                break
+
+                val errMsg = "연결 끊김: ${e.message} (${e.javaClass.simpleName})"
+                log("ERROR: $errMsg")
+                _state.value = DeviceUiState.Error(errMsg)
+                break@loop
             }
         }
 
