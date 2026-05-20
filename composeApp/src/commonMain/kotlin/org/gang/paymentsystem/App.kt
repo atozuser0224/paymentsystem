@@ -2,6 +2,8 @@ package org.gang.paymentsystem
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -10,11 +12,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+
+// ─────────────────────────────────────────────
+// Main App
+// ─────────────────────────────────────────────
 
 @Composable
 fun App(
@@ -24,7 +32,7 @@ fun App(
     val scope = rememberCoroutineScope()
     val api = remember { PaymentApi() }
 
-    // ── State ──
+    // ── Shared State ──
     var deviceList by remember { mutableStateOf<List<String>>(emptyList()) }
     var showDeviceDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -37,6 +45,9 @@ fun App(
     var currentBalance by remember { mutableStateOf<Long?>(null) }
     var currentLocation by remember { mutableStateOf<LocationData?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
+    var transactions by remember { mutableStateOf<List<TransactionDTO>>(emptyList()) }
+    var logFilter by remember { mutableStateOf(true) } // true = 전체, false = 현재카드
+    var narrowTab by remember { mutableStateOf(0) }    // 0 = 결제, 1 = 로그
 
     val deviceState by (devicePlatform?.state?.collectAsState()
         ?: remember { mutableStateOf(DeviceUiState.Disconnected) })
@@ -44,9 +55,7 @@ fun App(
     // ── Auto-fetch location on connect ──
     LaunchedEffect(deviceState) {
         if (deviceState is DeviceUiState.Connected && currentLocation == null) {
-            try {
-                currentLocation = locationPlatform?.getCurrentLocation()
-            } catch (_: Exception) { }
+            try { currentLocation = locationPlatform?.getCurrentLocation() } catch (_: Exception) {}
         }
     }
 
@@ -68,6 +77,8 @@ fun App(
                     resultText = "신규 카드 등록됨"
                     resultSuccess = true
                 }
+                // 카드 태그 시 거래 로그 새로고침
+                refreshTransactions(api, transactions, { transactions = it })
             } catch (e: Exception) {
                 resultText = "카드 조회 실패"
                 resultSuccess = false
@@ -77,7 +88,7 @@ fun App(
         }
     }
 
-    // ── Handle IR remote transactions from Arduino (PN532 + IR) ──
+    // ── Handle IR remote transactions from Arduino ──
     LaunchedEffect(deviceState) {
         if (deviceState is DeviceUiState.TransactionRead) {
             val tx = deviceState as DeviceUiState.TransactionRead
@@ -104,7 +115,8 @@ fun App(
                     currentLocation, tx.type, balance,
                     { r, s -> resultText = r; resultSuccess = s },
                     { b -> currentBalance = b },
-                    { p -> isProcessing = p }
+                    { p -> isProcessing = p },
+                    { refreshTransactions(api, transactions, { transactions = it }) }
                 )
             } catch (e: Exception) {
                 resultText = "거래 실패: ${e.message}"
@@ -115,6 +127,12 @@ fun App(
         }
     }
 
+    // ── Initial transaction log fetch ──
+    LaunchedEffect(Unit) {
+        refreshTransactions(api, transactions, { transactions = it })
+    }
+
+    // ── Theme ──
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Color(0xFF4CAF50),
@@ -134,343 +152,86 @@ fun App(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // ── Top Status Bar ──
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        "RFID 결제 단말기",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+            // Read window width for responsive layout
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val isWide = maxWidth >= 800.dp
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Settings button
-                        TextButton(
-                            onClick = { showSettingsDialog = true },
-                            contentPadding = PaddingValues(4.dp)
-                        ) {
-                            Text("⚙", fontSize = 18.sp)
+                if (isWide) {
+                    WideLayout(
+                        devicePlatform = devicePlatform,
+                        locationPlatform = locationPlatform,
+                        api = api,
+                        deviceState = deviceState,
+                        deviceList = deviceList,
+                        showDeviceDialog = showDeviceDialog,
+                        showSettingsDialog = showSettingsDialog,
+                        serverUrl = serverUrl,
+                        uuidInput = uuidInput,
+                        userName = userName,
+                        amountText = amountText,
+                        resultText = resultText,
+                        resultSuccess = resultSuccess,
+                        currentBalance = currentBalance,
+                        currentLocation = currentLocation,
+                        isProcessing = isProcessing,
+                        transactions = transactions,
+                        logFilter = logFilter,
+                        onShowDeviceDialogChange = { showDeviceDialog = it },
+                        onShowSettingsDialogChange = { showSettingsDialog = it },
+                        onServerUrlChange = { serverUrl = it; api.baseUrl = it },
+                        onUuidInputChange = { uuidInput = it },
+                        onUserNameChange = { userName = it },
+                        onAmountTextChange = { amountText = it },
+                        onResultChange = { r, s -> resultText = r; resultSuccess = s },
+                        onBalanceChange = { currentBalance = it },
+                        onLocationChange = { currentLocation = it },
+                        onProcessingChange = { isProcessing = it },
+                        onTransactionsChange = { transactions = it },
+                        onLogFilterChange = { logFilter = it },
+                        onDeviceListChange = { deviceList = it },
+                        onRefreshLogs = {
+                            scope.launch { refreshTransactions(api, transactions) { transactions = it } }
                         }
-
-                        // Bluetooth status indicator
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    when (deviceState) {
-                                        is DeviceUiState.Connected,
-                                        is DeviceUiState.CardRead -> Color(0xFF4CAF50)
-                                        is DeviceUiState.Connecting -> Color(0xFFFFC107)
-                                        else -> Color(0xFFF44336)
-                                    }
-                                )
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            when (deviceState) {
-                                is DeviceUiState.Connected -> "연결됨"
-                                is DeviceUiState.CardRead -> "연결됨"
-                                is DeviceUiState.Connecting -> "연결중..."
-                                is DeviceUiState.Error -> (deviceState as DeviceUiState.Error).message
-                                else -> "미연결"
-                            },
-                            fontSize = 13.sp,
-                            color = if (deviceState is DeviceUiState.Error)
-                                MaterialTheme.colorScheme.error
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2
-                        )
-                    }
-                    } // end settings+bluetooth row
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                // ── Card Display Card ──
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (uuidInput.isNotBlank())
-                            MaterialTheme.colorScheme.primaryContainer
-                        else
-                            MaterialTheme.colorScheme.surfaceVariant
                     )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        if (uuidInput.isBlank()) {
-                            Text(
-                                "카드를 태그해주세요",
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                "Arduino RFID 리더에\n카드를 태그하면 자동으로 인식됩니다",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
-                        } else {
-                            Text(
-                                "카드 인식됨",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                uuidInput,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                            )
-                            if (userName.isNotEmpty()) {
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    userName,
-                                    fontSize = 16.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            if (currentBalance != null) {
-                                Spacer(Modifier.height(12.dp))
-                                Text(
-                                    "잔액",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    "₩${formatAmount(currentBalance!!)}",
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                } else {
+                    NarrowLayout(
+                        devicePlatform = devicePlatform,
+                        locationPlatform = locationPlatform,
+                        api = api,
+                        deviceState = deviceState,
+                        deviceList = deviceList,
+                        showDeviceDialog = showDeviceDialog,
+                        showSettingsDialog = showSettingsDialog,
+                        serverUrl = serverUrl,
+                        uuidInput = uuidInput,
+                        userName = userName,
+                        amountText = amountText,
+                        resultText = resultText,
+                        resultSuccess = resultSuccess,
+                        currentBalance = currentBalance,
+                        currentLocation = currentLocation,
+                        isProcessing = isProcessing,
+                        transactions = transactions,
+                        logFilter = logFilter,
+                        narrowTab = narrowTab,
+                        onNarrowTabChange = { narrowTab = it },
+                        onShowDeviceDialogChange = { showDeviceDialog = it },
+                        onShowSettingsDialogChange = { showSettingsDialog = it },
+                        onServerUrlChange = { serverUrl = it; api.baseUrl = it },
+                        onUuidInputChange = { uuidInput = it },
+                        onUserNameChange = { userName = it },
+                        onAmountTextChange = { amountText = it },
+                        onResultChange = { r, s -> resultText = r; resultSuccess = s },
+                        onBalanceChange = { currentBalance = it },
+                        onLocationChange = { currentLocation = it },
+                        onProcessingChange = { isProcessing = it },
+                        onTransactionsChange = { transactions = it },
+                        onLogFilterChange = { logFilter = it },
+                        onDeviceListChange = { deviceList = it },
+                        onRefreshLogs = {
+                            scope.launch { refreshTransactions(api, transactions) { transactions = it } }
                         }
-                    }
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                // ── Amount Input ──
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = it.filter { c -> c.isDigit() } },
-                    label = { Text("금액 입력") },
-                    placeholder = { Text("0") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    enabled = !isProcessing,
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        textAlign = TextAlign.Center
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
                     )
-                )
-
-                Spacer(Modifier.height(12.dp))
-
-                // ── Payment Buttons ──
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Payment (Withdraw) button
-                    Button(
-                        onClick = {
-                            executeTransaction(
-                                scope, api, devicePlatform,
-                                uuidInput, userName, amountText, currentLocation,
-                                "WITHDRAW", currentBalance,
-                                { r, s -> resultText = r; resultSuccess = s },
-                                { b -> currentBalance = b },
-                                { p -> isProcessing = p }
-                            )
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(72.dp),
-                        enabled = canTransact(uuidInput, amountText, deviceState, isProcessing),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error
-                        )
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("결제", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                            Text("출금", fontSize = 12.sp)
-                        }
-                    }
-
-                    // Deposit button
-                    Button(
-                        onClick = {
-                            executeTransaction(
-                                scope, api, devicePlatform,
-                                uuidInput, userName, amountText, currentLocation,
-                                "DEPOSIT", currentBalance,
-                                { r, s -> resultText = r; resultSuccess = s },
-                                { b -> currentBalance = b },
-                                { p -> isProcessing = p }
-                            )
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(72.dp),
-                        enabled = canTransact(uuidInput, amountText, deviceState, isProcessing),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1565C0)
-                        )
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("입금", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                            Text("충전", fontSize = 12.sp)
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                // ── Quick amount buttons ──
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("1000", "5000", "10000", "50000").forEach { quickAmount ->
-                        OutlinedButton(
-                            onClick = { amountText = quickAmount },
-                            modifier = Modifier.weight(1f),
-                            enabled = !isProcessing,
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                "₩${formatAmount(quickAmount.toLong())}",
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                // ── Location Bar ──
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("📍", fontSize = 14.sp)
-                    Spacer(Modifier.width(4.dp))
-                    if (currentLocation != null) {
-                        val lat = (currentLocation!!.latitude * 10000).toLong() / 10000.0
-                        val lng = (currentLocation!!.longitude * 10000).toLong() / 10000.0
-                        Text(
-                            "위도: $lat, 경도: $lng",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Text(
-                            "위치 정보 없음 (버튼을 눌러 갱신)",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                try {
-                                    currentLocation = locationPlatform?.getCurrentLocation()
-                                } catch (_: Exception) { }
-                            }
-                        },
-                        enabled = locationPlatform != null && !isProcessing
-                    ) {
-                        Text("GPS 갱신", fontSize = 12.sp)
-                    }
-                }
-
-                Spacer(Modifier.weight(1f))
-
-                // ── Result Banner ──
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (resultSuccess)
-                            Color(0xFF1B5E20)
-                        else
-                            Color(0xFFB71C1C)
-                    )
-                ) {
-                    Text(
-                        resultText,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                // ── Bottom Controls ──
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            if (deviceState is DeviceUiState.Connected ||
-                                deviceState is DeviceUiState.CardRead
-                            ) {
-                                devicePlatform?.disconnect()
-                            } else {
-                                devicePlatform?.getAvailableDeviceNames()?.let {
-                                    deviceList = it
-                                    showDeviceDialog = true
-                                }
-                            }
-                        },
-                        enabled = devicePlatform != null && !isProcessing
-                    ) {
-                        Text(
-                            if (deviceState is DeviceUiState.Connected) "연결 해제"
-                            else "기기 연결"
-                        )
-                    }
-                }
-
-                if (isProcessing) {
-                    Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
         }
@@ -483,7 +244,7 @@ fun App(
             title = { Text("기기 연결") },
             text = {
                 if (deviceList.isEmpty()) {
-                    Text("연결 가능한 기기가 없습니다.\n안드로이드: HC-05/HC-06/HM-10을 페어링해주세요.\n데스크탑: 아두이노를 USB로 연결해주세요.")
+                    Text("연결 가능한 기기가 없습니다.\n데스크탑: 아두이노를 USB로 연결해주세요.")
                 } else {
                     Column {
                         deviceList.forEach { device ->
@@ -498,9 +259,7 @@ fun App(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showDeviceDialog = false }) { Text("취소") }
-            }
+            confirmButton = { TextButton(onClick = { showDeviceDialog = false }) { Text("취소") } }
         )
     }
 
@@ -513,9 +272,7 @@ fun App(
             text = {
                 Column {
                     Text(
-                        "안드로이드 에뮬레이터: http://10.0.2.2:8080\n" +
-                        "실제 기기: http://노트북IP:8080\n" +
-                        "(노트북 IP는 ipconfig로 확인)",
+                        "안드로이드 에뮬레이터: http://10.0.2.2:8080\n실제 기기: http://노트북IP:8080",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -524,7 +281,6 @@ fun App(
                         value = editedUrl,
                         onValueChange = { editedUrl = it },
                         label = { Text("서버 URL") },
-                        placeholder = { Text("http://192.168.x.x:8080") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -537,14 +293,614 @@ fun App(
                     showSettingsDialog = false
                 }) { Text("저장") }
             },
-            dismissButton = {
-                TextButton(onClick = { showSettingsDialog = false }) { Text("취소") }
-            }
+            dismissButton = { TextButton(onClick = { showSettingsDialog = false }) { Text("취소") } }
         )
     }
 }
 
-// ── Helpers ──
+// ─────────────────────────────────────────────
+// Wide Layout (>= 800dp): Left-Right Split
+// ─────────────────────────────────────────────
+
+@Composable
+private fun WideLayout(
+    devicePlatform: DevicePlatform?,
+    locationPlatform: LocationPlatform?,
+    api: PaymentApi,
+    deviceState: DeviceUiState,
+    deviceList: List<String>,
+    showDeviceDialog: Boolean,
+    showSettingsDialog: Boolean,
+    serverUrl: String,
+    uuidInput: String,
+    userName: String,
+    amountText: String,
+    resultText: String,
+    resultSuccess: Boolean,
+    currentBalance: Long?,
+    currentLocation: LocationData?,
+    isProcessing: Boolean,
+    transactions: List<TransactionDTO>,
+    logFilter: Boolean,
+    onShowDeviceDialogChange: (Boolean) -> Unit,
+    onShowSettingsDialogChange: (Boolean) -> Unit,
+    onServerUrlChange: (String) -> Unit,
+    onUuidInputChange: (String) -> Unit,
+    onUserNameChange: (String) -> Unit,
+    onAmountTextChange: (String) -> Unit,
+    onResultChange: (String, Boolean) -> Unit,
+    onBalanceChange: (Long?) -> Unit,
+    onLocationChange: (LocationData?) -> Unit,
+    onProcessingChange: (Boolean) -> Unit,
+    onTransactionsChange: (List<TransactionDTO>) -> Unit,
+    onLogFilterChange: (Boolean) -> Unit,
+    onDeviceListChange: (List<String>) -> Unit,
+    onRefreshLogs: () -> Unit
+) {
+    Row(modifier = Modifier.fillMaxSize()) {
+        // Left: Payment Panel
+        PaymentPanel(
+            devicePlatform = devicePlatform,
+            locationPlatform = locationPlatform,
+            api = api,
+            deviceState = deviceState,
+            deviceList = deviceList,
+            uuidInput = uuidInput,
+            userName = userName,
+            amountText = amountText,
+            resultText = resultText,
+            resultSuccess = resultSuccess,
+            currentBalance = currentBalance,
+            currentLocation = currentLocation,
+            isProcessing = isProcessing,
+            modifier = Modifier.weight(0.5f),
+            onShowDeviceDialogChange = onShowDeviceDialogChange,
+            onShowSettingsDialogChange = onShowSettingsDialogChange,
+            onUuidInputChange = onUuidInputChange,
+            onAmountTextChange = onAmountTextChange,
+            onResultChange = onResultChange,
+            onBalanceChange = onBalanceChange,
+            onLocationChange = onLocationChange,
+            onProcessingChange = onProcessingChange,
+            onDeviceListChange = onDeviceListChange,
+            onRefreshLogs = onRefreshLogs
+        )
+
+        // Divider
+        VerticalDivider(modifier = Modifier.fillMaxHeight(), color = Color(0xFF333333))
+
+        // Right: Transaction Log Panel
+        TransactionLogPanel(
+            uuidInput = uuidInput,
+            transactions = transactions,
+            logFilter = logFilter,
+            modifier = Modifier.weight(0.5f),
+            onLogFilterChange = onLogFilterChange,
+            onRefreshLogs = onRefreshLogs
+        )
+    }
+}
+
+// ─────────────────────────────────────────────
+// Narrow Layout (< 800dp): Tab-based
+// ─────────────────────────────────────────────
+
+@Composable
+private fun NarrowLayout(
+    devicePlatform: DevicePlatform?,
+    locationPlatform: LocationPlatform?,
+    api: PaymentApi,
+    deviceState: DeviceUiState,
+    deviceList: List<String>,
+    showDeviceDialog: Boolean,
+    showSettingsDialog: Boolean,
+    serverUrl: String,
+    uuidInput: String,
+    userName: String,
+    amountText: String,
+    resultText: String,
+    resultSuccess: Boolean,
+    currentBalance: Long?,
+    currentLocation: LocationData?,
+    isProcessing: Boolean,
+    transactions: List<TransactionDTO>,
+    logFilter: Boolean,
+    narrowTab: Int,
+    onNarrowTabChange: (Int) -> Unit,
+    onShowDeviceDialogChange: (Boolean) -> Unit,
+    onShowSettingsDialogChange: (Boolean) -> Unit,
+    onServerUrlChange: (String) -> Unit,
+    onUuidInputChange: (String) -> Unit,
+    onUserNameChange: (String) -> Unit,
+    onAmountTextChange: (String) -> Unit,
+    onResultChange: (String, Boolean) -> Unit,
+    onBalanceChange: (Long?) -> Unit,
+    onLocationChange: (LocationData?) -> Unit,
+    onProcessingChange: (Boolean) -> Unit,
+    onTransactionsChange: (List<TransactionDTO>) -> Unit,
+    onLogFilterChange: (Boolean) -> Unit,
+    onDeviceListChange: (List<String>) -> Unit,
+    onRefreshLogs: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Tab Row
+        TabRow(
+            selectedTabIndex = narrowTab,
+            containerColor = Color(0xFF1A1A1A),
+            contentColor = Color(0xFF4CAF50)
+        ) {
+            Tab(selected = narrowTab == 0, onClick = { onNarrowTabChange(0) }) {
+                Text("결제", modifier = Modifier.padding(12.dp), fontSize = 14.sp)
+            }
+            Tab(selected = narrowTab == 1, onClick = { onNarrowTabChange(1) }) {
+                Text("거래 로그", modifier = Modifier.padding(12.dp), fontSize = 14.sp)
+            }
+        }
+
+        when (narrowTab) {
+            0 -> PaymentPanel(
+                devicePlatform = devicePlatform,
+                locationPlatform = locationPlatform,
+                api = api,
+                deviceState = deviceState,
+                deviceList = deviceList,
+                uuidInput = uuidInput,
+                userName = userName,
+                amountText = amountText,
+                resultText = resultText,
+                resultSuccess = resultSuccess,
+                currentBalance = currentBalance,
+                currentLocation = currentLocation,
+                isProcessing = isProcessing,
+                modifier = Modifier.fillMaxSize(),
+                onShowDeviceDialogChange = onShowDeviceDialogChange,
+                onShowSettingsDialogChange = onShowSettingsDialogChange,
+                onUuidInputChange = onUuidInputChange,
+                onAmountTextChange = onAmountTextChange,
+                onResultChange = onResultChange,
+                onBalanceChange = onBalanceChange,
+                onLocationChange = onLocationChange,
+                onProcessingChange = onProcessingChange,
+                onDeviceListChange = onDeviceListChange,
+                onRefreshLogs = onRefreshLogs
+            )
+            1 -> TransactionLogPanel(
+                uuidInput = uuidInput,
+                transactions = transactions,
+                logFilter = logFilter,
+                modifier = Modifier.fillMaxSize(),
+                onLogFilterChange = onLogFilterChange,
+                onRefreshLogs = onRefreshLogs
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// Payment Panel (Left / Tab 1)
+// ─────────────────────────────────────────────
+
+@Composable
+private fun PaymentPanel(
+    devicePlatform: DevicePlatform?,
+    locationPlatform: LocationPlatform?,
+    api: PaymentApi,
+    deviceState: DeviceUiState,
+    deviceList: List<String>,
+    uuidInput: String,
+    userName: String,
+    amountText: String,
+    resultText: String,
+    resultSuccess: Boolean,
+    currentBalance: Long?,
+    currentLocation: LocationData?,
+    isProcessing: Boolean,
+    modifier: Modifier = Modifier,
+    onShowDeviceDialogChange: (Boolean) -> Unit,
+    onShowSettingsDialogChange: (Boolean) -> Unit,
+    onUuidInputChange: (String) -> Unit,
+    onAmountTextChange: (String) -> Unit,
+    onResultChange: (String, Boolean) -> Unit,
+    onBalanceChange: (Long?) -> Unit,
+    onLocationChange: (LocationData?) -> Unit,
+    onProcessingChange: (Boolean) -> Unit,
+    onDeviceListChange: (List<String>) -> Unit,
+    onRefreshLogs: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = modifier.padding(16.dp).fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // ── Top Status Bar ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "RFID 결제 단말기",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { onShowSettingsDialogChange(true) }, contentPadding = PaddingValues(4.dp)) {
+                    Text("⚙", fontSize = 16.sp)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(10.dp).clip(CircleShape).background(
+                            when (deviceState) {
+                                is DeviceUiState.Connected, is DeviceUiState.CardRead -> Color(0xFF4CAF50)
+                                is DeviceUiState.Connecting -> Color(0xFFFFC107)
+                                else -> Color(0xFFF44336)
+                            }
+                        )
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        when (deviceState) {
+                            is DeviceUiState.Connected -> "연결됨"
+                            is DeviceUiState.CardRead -> "연결됨"
+                            is DeviceUiState.Connecting -> "연결중..."
+                            is DeviceUiState.Error -> (deviceState as DeviceUiState.Error).message
+                            else -> "미연결"
+                        },
+                        fontSize = 12.sp,
+                        color = if (deviceState is DeviceUiState.Error) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // ── Scrollable Content ──
+        Column(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // ── Card Display Card ──
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (uuidInput.isNotBlank()) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (uuidInput.isBlank()) {
+                        Text("카드를 태그해주세요", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Arduino RFID 리더에\n카드를 태그하면 자동 인식",
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center
+                        )
+                    } else {
+                        Text("카드 인식됨", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.height(4.dp))
+                        Text(uuidInput, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        if (userName.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(userName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        if (currentBalance != null) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("잔액", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "₩${formatAmount(currentBalance!!)}",
+                                fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // ── Amount Input ──
+            OutlinedTextField(
+                value = amountText,
+                onValueChange = { onAmountTextChange(it.filter { c -> c.isDigit() }) },
+                label = { Text("금액 입력") },
+                placeholder = { Text("0") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                enabled = !isProcessing,
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center
+                ),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                )
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            // ── Payment Buttons ──
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = {
+                        executeTransaction(
+                            scope, api, devicePlatform,
+                            uuidInput, userName, amountText, currentLocation,
+                            "WITHDRAW", currentBalance,
+                            { r, s -> onResultChange(r, s) },
+                            { onBalanceChange(it) },
+                            { onProcessingChange(it) },
+                            onRefreshLogs
+                        )
+                    },
+                    modifier = Modifier.weight(1f).height(64.dp),
+                    enabled = canTransact(uuidInput, amountText, deviceState, isProcessing),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("결제", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("출금", fontSize = 11.sp)
+                    }
+                }
+                Button(
+                    onClick = {
+                        executeTransaction(
+                            scope, api, devicePlatform,
+                            uuidInput, userName, amountText, currentLocation,
+                            "DEPOSIT", currentBalance,
+                            { r, s -> onResultChange(r, s) },
+                            { onBalanceChange(it) },
+                            { onProcessingChange(it) },
+                            onRefreshLogs
+                        )
+                    },
+                    modifier = Modifier.weight(1f).height(64.dp),
+                    enabled = canTransact(uuidInput, amountText, deviceState, isProcessing),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("입금", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("충전", fontSize = 11.sp)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // ── Quick amount buttons ──
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf("1000", "5000", "10000", "50000").forEach { qa ->
+                    OutlinedButton(
+                        onClick = { onAmountTextChange(qa) },
+                        modifier = Modifier.weight(1f),
+                        enabled = !isProcessing,
+                        shape = RoundedCornerShape(8.dp)
+                    ) { Text("₩${formatAmount(qa.toLong())}", fontSize = 11.sp) }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // ── Location Bar ──
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("📍", fontSize = 12.sp)
+                Spacer(Modifier.width(4.dp))
+                if (currentLocation != null) {
+                    val lat = (currentLocation!!.latitude * 10000).toLong() / 10000.0
+                    val lng = (currentLocation!!.longitude * 10000).toLong() / 10000.0
+                    Text("위도: $lat, 경도: $lng", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("위치 정보 없음", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            try { onLocationChange(locationPlatform?.getCurrentLocation()) } catch (_: Exception) {}
+                        }
+                    },
+                    enabled = locationPlatform != null && !isProcessing
+                ) { Text("GPS 갱신", fontSize = 11.sp) }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // ── Result Banner ──
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (resultSuccess) Color(0xFF1B5E20) else Color(0xFFB71C1C)
+                )
+            ) {
+                Text(
+                    resultText,
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    color = Color.White, fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium, textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        // ── Progress ──
+        if (isProcessing) {
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // ── Connect Button ──
+        OutlinedButton(
+            onClick = {
+                if (deviceState is DeviceUiState.Connected || deviceState is DeviceUiState.CardRead) {
+                    devicePlatform?.disconnect()
+                } else {
+                    devicePlatform?.getAvailableDeviceNames()?.let {
+                        onDeviceListChange(it)
+                        onShowDeviceDialogChange(true)
+                    }
+                }
+            },
+            enabled = devicePlatform != null && !isProcessing
+        ) {
+            Text(if (deviceState is DeviceUiState.Connected) "연결 해제" else "기기 연결")
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// Transaction Log Panel (Right / Tab 2)
+// ─────────────────────────────────────────────
+
+@Composable
+private fun TransactionLogPanel(
+    uuidInput: String,
+    transactions: List<TransactionDTO>,
+    logFilter: Boolean,
+    modifier: Modifier = Modifier,
+    onLogFilterChange: (Boolean) -> Unit,
+    onRefreshLogs: () -> Unit
+) {
+    Column(modifier = modifier.padding(16.dp).fillMaxSize()) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("거래 로그", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            TextButton(onClick = onRefreshLogs, contentPadding = PaddingValues(4.dp)) {
+                Text("새로고침", fontSize = 12.sp)
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Filter Tabs
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = logFilter,
+                onClick = { onLogFilterChange(true) },
+                label = { Text("전체", fontSize = 12.sp) }
+            )
+            FilterChip(
+                selected = !logFilter,
+                onClick = { onLogFilterChange(false) },
+                label = { Text("현재 카드", fontSize = 12.sp) }
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Filtered transactions
+        val filtered = if (logFilter) transactions
+        else transactions.filter { uuidInput.isNotBlank() && it.uuid == uuidInput }
+
+        if (filtered.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    if (transactions.isEmpty()) "거래 내역이 없습니다" else "해당 카드의 거래 내역이 없습니다",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(filtered) { tx -> TransactionItem(tx = tx, isHighlighted = tx.uuid == uuidInput && uuidInput.isNotBlank()) }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// Transaction Item
+// ─────────────────────────────────────────────
+
+@Composable
+private fun TransactionItem(tx: TransactionDTO, isHighlighted: Boolean) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isHighlighted) Color(0xFF1B3A1B) else Color(0xFF252525)
+        )
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (tx.type == "DEPOSIT") "입금" else "출금",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (tx.type == "DEPOSIT") Color(0xFF4CAF50) else Color(0xFFEF5350)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        tx.userName,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(Modifier.height(2.dp))
+                Row {
+                    Text(
+                        tx.uuid.take(16),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFF888888),
+                        maxLines = 1
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        tx.timestamp.takeLast(8),
+                        fontSize = 10.sp,
+                        color = Color(0xFF888888)
+                    )
+                }
+            }
+            Text(
+                "₩${formatAmount(tx.amount)}",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (tx.type == "DEPOSIT") Color(0xFF4CAF50) else Color(0xFFEF5350)
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// Shared Helpers
+// ─────────────────────────────────────────────
 
 private fun canTransact(
     uuid: String,
@@ -571,7 +927,8 @@ private fun executeTransaction(
     currentBalance: Long?,
     setResult: (String, Boolean) -> Unit,
     setBalance: (Long?) -> Unit,
-    setProcessing: (Boolean) -> Unit
+    setProcessing: (Boolean) -> Unit,
+    onDone: () -> Unit
 ) {
     val amount = amountText.toLongOrNull()
     if (amount == null || amount <= 0) {
@@ -593,19 +950,33 @@ private fun executeTransaction(
                 locationName = ""
             )
             val tx = api.sendTransaction(req)
-            val newBalance = if (type == "WITHDRAW")
-                (currentBalance ?: 0) - amount
-            else
-                (currentBalance ?: 0) + amount
+            val newBalance = if (type == "WITHDRAW") (currentBalance ?: 0) - amount
+            else (currentBalance ?: 0) + amount
             setBalance(newBalance)
             setResult("$typeLabel 완료! ₩${formatAmount(amount)} | 잔액: ₩${formatAmount(newBalance)}", true)
             bt?.sendResponse(true)
+            onDone()
         } catch (e: Exception) {
             setResult("$typeLabel 실패: ${e.message}", false)
             bt?.sendResponse(false)
+            onDone()
         } finally {
             setProcessing(false)
         }
     }
 }
 
+private fun refreshTransactions(
+    api: PaymentApi,
+    current: List<TransactionDTO>,
+    onUpdate: (List<TransactionDTO>) -> Unit
+) {
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+        try {
+            val txns = api.getTransactions()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onUpdate(txns)
+            }
+        } catch (_: Exception) {}
+    }
+}

@@ -94,7 +94,7 @@ void flashLed(int pin, int times, int delayMs) {
     }
 }
 
-// 추가: 블루투스에서 응답 대기 (참조 코드 함수)
+// 블루투스 응답 대기 (참조 코드 함수)
 String waitForResponse(unsigned long timeoutMs) {
     unsigned long start = millis();
     String response = "";
@@ -102,6 +102,25 @@ String waitForResponse(unsigned long timeoutMs) {
     while (millis() - start < timeoutMs) {
         while (bluetooth.available()) {
             char c = bluetooth.read();
+            if (c == '\n' || c == '\r') {
+                if (response.length() > 0) return response;
+            } else {
+                response += c;
+            }
+        }
+        delay(10);
+    }
+    return response;
+}
+
+// USB Serial 응답 대기 (데스크톱 앱과 통신)
+String waitForSerialResponse(unsigned long timeoutMs) {
+    unsigned long start = millis();
+    String response = "";
+
+    while (millis() - start < timeoutMs) {
+        while (Serial.available()) {
+            char c = Serial.read();
             if (c == '\n' || c == '\r') {
                 if (response.length() > 0) return response;
             } else {
@@ -205,16 +224,16 @@ void handleTransaction(const String& type) {
     lcd.setCursor(0, 1);
     lcd.print(type);
     
-    // 블루투스로 거래 정보 전송 (참조 코드 형식: TRANS:UID,AMOUNT,TYPE)
-    bluetooth.print(F("TRANS:"));
-    bluetooth.print(currentCardUid);
-    bluetooth.print(F(","));
-    bluetooth.print(amountValue);
-    bluetooth.print(F(","));
-    bluetooth.println(type);
-    
-    // 데스크톱 응답 대기 (5초)
-    String response = waitForResponse(5000);
+    // USB Serial로 거래 정보 전송 (데스크톱 앱이 USB로 연결됨)
+    Serial.print(F("TRANS:"));
+    Serial.print(currentCardUid);
+    Serial.print(F(","));
+    Serial.print(amountValue);
+    Serial.print(F(","));
+    Serial.println(type);
+
+    // 데스크톱 응답 대기 (5초, USB Serial)
+    String response = waitForSerialResponse(5000);
     
     lcd.clear();
     if (response.startsWith("OK")) {
