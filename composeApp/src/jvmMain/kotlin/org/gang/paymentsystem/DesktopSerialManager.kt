@@ -157,6 +157,16 @@ class DesktopSerialManager : DevicePlatform {
                                 _state.value = DeviceUiState.TransactionRead(uid, amount, type)
                             }
                         }
+                    } else if (line.startsWith("PASSWD:")) {
+                        val parts = line.removePrefix("PASSWD:").split(",")
+                        if (parts.size >= 4) {
+                            val mode = parts[0].trim()
+                            val uid = parts[1].trim()
+                            val amount = parts[2].trim()
+                            val pin = parts[3].trim()
+                            log("비밀번호 수신: mode=$mode uid=$uid amount=$amount")
+                            _state.value = DeviceUiState.PasswordInput(mode, uid, amount, pin)
+                        }
                     }
                 }
             } catch (e: Exception) {
