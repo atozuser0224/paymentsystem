@@ -15,6 +15,8 @@ bool cardAuthorized = false;          // 추가: 카드 인증 상태
 unsigned long lastInputTime = 0;      // 추가: 마지막 입력 시간
 const unsigned long TIMEOUT_MS = 15000;  // 추가: 15초 타임아웃
 String currentCardUid = "";           // 추가: 현재 인증된 카드의 UID
+String pinInput = "";
+String pinMode = "";
 
 // 추가: PN532 객체 (I2C 모드)
 #define PN532_IRQ   (7)
@@ -190,6 +192,83 @@ void handleTimeout() {
     cardAuthorized = false;
     amount = "";
     currentCardUid = "";
+    updateLCD();
+}
+
+void enterPinMode(const String& mode) {
+    pinMode = mode;
+    pinInput = "";
+    lastInputTime = millis();
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    if (mode == "MASTER") {
+        lcd.print("Master Password");
+    } else {
+        lcd.print("Enter Card PIN");
+    }
+    lcd.setCursor(0, 1);
+    lcd.print("PIN: ");
+}
+
+void handlePinDigit(char digit) {
+    if (pinInput.length() >= 8) return;
+    pinInput += digit;
+    lastInputTime = millis();
+    lcd.setCursor(5, 1);
+    for (unsigned int i = 0; i < pinInput.length(); i++) {
+        lcd.print("*");
+    }
+    lcd.print("           ");
+    playTone(digitTones[digit - '0'], 80);
+}
+
+void handlePinBackspace() {
+    if (pinInput.length() > 0) {
+        pinInput.remove(pinInput.length() - 1);
+        lcd.setCursor(5, 1);
+        for (unsigned int i = 0; i < pinInput.length(); i++) {
+            lcd.print("*");
+        }
+        lcd.print("            ");
+    }
+}
+
+void submitPin() {
+    Serial.print("PASSWD:");
+    Serial.print(pinMode);
+    Serial.print(",");
+    if (pinMode != "MASTER") {
+        Serial.print(currentCardUid);
+    }
+    Serial.print(",");
+    if (pinMode != "MASTER") {
+        Serial.print(amount);
+    }
+    Serial.print(",");
+    Serial.println(pinInput);
+
+    String response = waitForSerialResponse(5000);
+
+    if (response.startsWith("OK")) {
+        flashLed(LED_GREEN, 3, 150);
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Authorized!");
+        delay(1500);
+        // PC handles transaction too, Arduino just returns to IDLE
+    } else {
+        flashLed(LED_RED, 3, 200);
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Wrong PIN!");
+        delay(1500);
+    }
+
+    pinMode = "";
+    pinInput = "";
+    cardAuthorized = false;
+    currentCardUid = "";
+    amount = "";
     updateLCD();
 }
 
@@ -395,6 +474,46 @@ void loop() {
         if (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) {
             Serial.println(F("Repeat received. Here you can repeat the same action as before."));
         } else {
+            // PIN 입력 모드 체크
+            if (pinMode.length() > 0) {
+                if (IrReceiver.decodedIRData.command == 0x16) {
+                    handlePinDigit('0');
+                } else if (IrReceiver.decodedIRData.command == 0xC) {
+                    handlePinDigit('1');
+                } else if (IrReceiver.decodedIRData.command == 0x18) {
+                    handlePinDigit('2');
+                } else if (IrReceiver.decodedIRData.command == 0x5E) {
+                    handlePinDigit('3');
+                } else if (IrReceiver.decodedIRData.command == 0x8) {
+                    handlePinDigit('4');
+                } else if (IrReceiver.decodedIRData.command == 0x1C) {
+                    handlePinDigit('5');
+                } else if (IrReceiver.decodedIRData.command == 0x5A) {
+                    handlePinDigit('6');
+                } else if (IrReceiver.decodedIRData.command == 0x42) {
+                    handlePinDigit('7');
+                } else if (IrReceiver.decodedIRData.command == 0x52) {
+                    handlePinDigit('8');
+                } else if (IrReceiver.decodedIRData.command == 0x4A) {
+                    handlePinDigit('9');
+                } else if (IrReceiver.decodedIRData.command == 0xD) {
+                    handlePinBackspace();
+                } else if (IrReceiver.decodedIRData.command == 0x15) {
+                    if (pinInput.length() > 0) {
+                        submitPin();
+                    }
+                } else if (IrReceiver.decodedIRData.command == 0x7) {
+                    flashLed(LED_RED, 1, 200);
+                    pinMode = "";
+                    pinInput = "";
+                    cardAuthorized = false;
+                    currentCardUid = "";
+                    amount = "";
+                    updateLCD();
+                }
+                return;
+            }
+
             // 추가: 카드 인증 안 됐으면 모든 버튼 무시
             if (!cardAuthorized) {
                 Serial.println(F("Card not authorized!"));
@@ -458,15 +577,31 @@ void loop() {
             }
             else if (IrReceiver.decodedIRData.command == 0x7) {
                 Serial.println("-");
-                handleTransaction("WITHDRAW");   // 변경: - 버튼으로 출금
+                if (amount.length() == 0) {
+                    flashLed(LED_RED, 2, 200);
+                    lcd.clear(); lcd.setCursor(0, 0); lcd.print("No amount!");
+                    lcd.setCursor(0, 1); lcd.print("Enter first");
+                    delay(1500);
+                    updateLCD();
+                } else {
+                    enterPinMode("WITHDRAW");
+                }
             }
             else if (IrReceiver.decodedIRData.command == 0x15) {
                 Serial.println("+");
-                handleTransaction("DEPOSIT");    // 변경: + 버튼으로 입금
+                if (amount.length() == 0) {
+                    flashLed(LED_RED, 2, 200);
+                    lcd.clear(); lcd.setCursor(0, 0); lcd.print("No amount!");
+                    lcd.setCursor(0, 1); lcd.print("Enter first");
+                    delay(1500);
+                    updateLCD();
+                } else {
+                    enterPinMode("DEPOSIT");
+                }
             }
             else if (IrReceiver.decodedIRData.command == 0x9) {
                 Serial.println("EQ");
-                // EQ는 비워둠 (필요시 기능 추가)
+                enterPinMode("MASTER");
             }
         }
     }
