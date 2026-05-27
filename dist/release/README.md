@@ -111,6 +111,8 @@ start-desktop.bat
 
 | 기능 | 설명 |
 |------|------|
+| **마스터 비밀번호 변경** | 관리자 모드 진입 비밀번호 변경 |
+| **카드 PIN 설정** | 카드 UID 지정 → 새 PIN 설정 (카드 태그 시 UID 자동 입력) |
 | **영업 종료** | 지정 시간까지 모든 입출금 차단 (HH:mm 형식) |
 | **영업 재개** | 차단 해제 |
 | **장비 제어** | (준비 중) |
@@ -120,7 +122,9 @@ start-desktop.bat
 
 ## 5. 최초 설정
 
-### 마스터 비밀번호 설정
+> 모든 설정은 데스크톱 앱의 **관리자 패널**에서 가능하다. 아래는 API 직접 호출 방식.
+
+### 마스터 비밀번호 설정 (API)
 
 ```powershell
 curl -X POST http://localhost:8080/set-master `
@@ -128,7 +132,7 @@ curl -X POST http://localhost:8080/set-master `
   -d '{"newPassword": "1234"}'
 ```
 
-### 카드 PIN 설정
+### 카드 PIN 설정 (API)
 
 ```powershell
 curl -X POST http://localhost:8080/set-pin `
@@ -138,7 +142,7 @@ curl -X POST http://localhost:8080/set-pin `
 
 > 카드 UID는 카드를 태그하면 LCD와 PC 화면에 표시됨
 
-### 설정 확인
+### 설정 확인 (API)
 
 ```powershell
 # 비밀번호 검증 테스트

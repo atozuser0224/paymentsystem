@@ -419,6 +419,7 @@ private fun WideLayout(
         AdminPanel(
             api = api,
             isWide = true,
+            uuidInput = uuidInput,
             onClose = { onShowAdminPanelChange(false) },
             onResult = { r, s -> onResultChange(r, s) }
         )
@@ -515,6 +516,7 @@ private fun NarrowLayout(
         AdminPanel(
             api = api,
             isWide = false,
+            uuidInput = uuidInput,
             onClose = { onShowAdminPanelChange(false) },
             onResult = { r, s -> onResultChange(r, s) }
         )
@@ -1072,12 +1074,18 @@ private fun executeTransaction(
 private fun AdminPanel(
     api: PaymentApi,
     isWide: Boolean,
+    uuidInput: String,
     onClose: () -> Unit,
     onResult: (String, Boolean) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var businessStatus by remember { mutableStateOf<BusinessStatusResponse?>(null) }
     var lockUntil by remember { mutableStateOf("") }
+    var newMasterPassword by remember { mutableStateOf("") }
+    var masterPasswordResult by remember { mutableStateOf<String?>(null) }
+    var cardUidInput by remember { mutableStateOf(uuidInput) }
+    var newCardPin by remember { mutableStateOf("") }
+    var cardPinResult by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         try { businessStatus = api.getBusinessStatus() } catch (_: Exception) {}
@@ -1200,6 +1208,134 @@ private fun AdminPanel(
                     ) {
                         Text("영업 재개")
                     }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // Master Password Section
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("마스터 비밀번호 변경", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+
+                Spacer(Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newMasterPassword,
+                        onValueChange = { newMasterPassword = it },
+                        label = { Text("새 비밀번호") },
+                        placeholder = { Text("숫자 4~8자리") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                if (newMasterPassword.isNotBlank()) {
+                                    try {
+                                        api.setMasterPassword(newMasterPassword)
+                                        masterPasswordResult = "마스터 비밀번호 변경 완료"
+                                        newMasterPassword = ""
+                                    } catch (e: Exception) {
+                                        masterPasswordResult = "실패: ${e.message}"
+                                    }
+                                }
+                            }
+                        },
+                        enabled = newMasterPassword.isNotBlank()
+                    ) {
+                        Text("변경")
+                    }
+                }
+
+                if (masterPasswordResult != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        masterPasswordResult!!,
+                        fontSize = 12.sp,
+                        color = if (masterPasswordResult!!.startsWith("실패")) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // Card PIN Management Section
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("카드 PIN 설정", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = cardUidInput,
+                    onValueChange = { cardUidInput = it },
+                    label = { Text("카드 UID") },
+                    placeholder = { Text("카드 태그 시 자동 입력") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newCardPin,
+                        onValueChange = { newCardPin = it.filter { c -> c.isDigit() } },
+                        label = { Text("새 PIN") },
+                        placeholder = { Text("숫자 4~8자리") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                if (cardUidInput.isNotBlank() && newCardPin.isNotBlank()) {
+                                    try {
+                                        api.setCardPin(cardUidInput, newCardPin)
+                                        cardPinResult = "PIN 설정 완료"
+                                        newCardPin = ""
+                                    } catch (e: Exception) {
+                                        cardPinResult = "실패: ${e.message}"
+                                    }
+                                }
+                            }
+                        },
+                        enabled = cardUidInput.isNotBlank() && newCardPin.isNotBlank()
+                    ) {
+                        Text("설정")
+                    }
+                }
+
+                if (cardPinResult != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        cardPinResult!!,
+                        fontSize = 12.sp,
+                        color = if (cardPinResult!!.startsWith("실패")) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }
