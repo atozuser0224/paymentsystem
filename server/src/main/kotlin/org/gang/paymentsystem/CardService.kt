@@ -257,6 +257,8 @@ class CardService(database: Database) {
         val uuidHash = Cards.selectAll()
             .firstOrNull { BCrypt.checkpw(rawUuid, it[Cards.uuid]) }
             ?.let { it[Cards.uuid] } ?: return@dbQuery
+        // Delete existing PIN if any, then insert new (avoids duplicates)
+        CardPins.deleteWhere { CardPins.uuidHash eq uuidHash }
         val pinHash = BCrypt.hashpw(pin, BCrypt.gensalt())
         CardPins.insert {
             it[CardPins.uuidHash] = uuidHash
