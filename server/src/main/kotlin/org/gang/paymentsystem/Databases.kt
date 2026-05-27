@@ -311,18 +311,37 @@ fun Application.configureDatabases() {
             }
             val ok = passwordService.verifyPin(req.uuid, req.pin)
             call.respond(HttpStatusCode.OK, VerifyResponse(ok))
+        }.describe {
+            summary = "PIN 검증"
+            description = "카드 UUID와 PIN을 받아 일치 여부를 확인합니다."
+            responses {
+                HttpStatusCode.OK { description = "VerifyResponse(ok=true/false)" }
+                HttpStatusCode.BadRequest { description = "올바르지 않은 UID 형식" }
+            }
         }
 
         post("/verify-master") {
             val req = call.receive<VerifyMasterRequest>()
             val ok = passwordService.verifyMasterPassword(req.password)
             call.respond(HttpStatusCode.OK, VerifyResponse(ok))
+        }.describe {
+            summary = "마스터 비밀번호 검증"
+            description = "마스터 비밀번호가 일치하는지 확인합니다."
+            responses {
+                HttpStatusCode.OK { description = "VerifyResponse(ok=true/false)" }
+            }
         }
 
         post("/set-master") {
             val req = call.receive<SetMasterRequest>()
             passwordService.setMasterPassword(req.newPassword)
             call.respond(HttpStatusCode.OK, VerifyResponse(true))
+        }.describe {
+            summary = "마스터 비밀번호 설정"
+            description = "새로운 마스터 비밀번호를 설정합니다."
+            responses {
+                HttpStatusCode.OK { description = "VerifyResponse(true)" }
+            }
         }
 
         post("/set-pin") {
@@ -333,17 +352,36 @@ fun Application.configureDatabases() {
             }
             passwordService.setCardPin(req.uuid, req.newPin)
             call.respond(HttpStatusCode.OK, VerifyResponse(true))
+        }.describe {
+            summary = "카드 PIN 설정"
+            description = "특정 카드의 PIN을 변경합니다."
+            responses {
+                HttpStatusCode.OK { description = "VerifyResponse(true)" }
+                HttpStatusCode.BadRequest { description = "올바르지 않은 UID 형식" }
+            }
         }
 
         post("/lock-business") {
             val req = call.receive<LockBusinessRequest>()
             passwordService.lockBusiness(req.until)
             call.respond(HttpStatusCode.OK, VerifyResponse(true))
+        }.describe {
+            summary = "영업 잠금"
+            description = "영업을 잠그고 잠금 해제 시각을 설정합니다."
+            responses {
+                HttpStatusCode.OK { description = "VerifyResponse(true)" }
+            }
         }
 
         get("/business-status") {
             val status = passwordService.getBusinessStatus()
             call.respond(HttpStatusCode.OK, status)
+        }.describe {
+            summary = "영업 상태 조회"
+            description = "현재 영업 잠금 상태와 잠금 해제 시각을 반환합니다."
+            responses {
+                HttpStatusCode.OK { description = "BusinessStatusResponse" }
+            }
         }
     }
 }
