@@ -54,6 +54,27 @@ data class AdminSummary(
     val recentTransactions: List<TransactionDTO> = emptyList()
 )
 
+@Serializable
+data class VerifyPinRequest(val uuid: String, val pin: String)
+
+@Serializable
+data class VerifyMasterRequest(val password: String)
+
+@Serializable
+data class SetMasterRequest(val newPassword: String)
+
+@Serializable
+data class SetPinRequest(val uuid: String, val newPin: String)
+
+@Serializable
+data class LockBusinessRequest(val until: String)
+
+@Serializable
+data class VerifyResponse(val ok: Boolean)
+
+@Serializable
+data class BusinessStatusResponse(val locked: Boolean, val until: String? = null)
+
 data class LocationData(
     val latitude: Double,
     val longitude: Double
