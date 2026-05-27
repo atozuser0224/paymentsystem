@@ -95,6 +95,57 @@ class PaymentApi(var baseUrl: String = "http://10.0.2.2:8080") {
         return response.status == HttpStatusCode.NoContent
     }
 
+    suspend fun verifyPin(uuid: String, pin: String): Boolean {
+        val response = client.post("$baseUrl/verify-pin") {
+            contentType(ContentType.Application.Json)
+            setBody(VerifyPinRequest(uuid, pin))
+        }
+        return if (response.status == HttpStatusCode.OK) {
+            response.body<VerifyResponse>().ok
+        } else false
+    }
+
+    suspend fun verifyMasterPassword(password: String): Boolean {
+        val response = client.post("$baseUrl/verify-master") {
+            contentType(ContentType.Application.Json)
+            setBody(VerifyMasterRequest(password))
+        }
+        return if (response.status == HttpStatusCode.OK) {
+            response.body<VerifyResponse>().ok
+        } else false
+    }
+
+    suspend fun setMasterPassword(newPassword: String): Boolean {
+        val response = client.post("$baseUrl/set-master") {
+            contentType(ContentType.Application.Json)
+            setBody(SetMasterRequest(newPassword))
+        }
+        return response.status == HttpStatusCode.OK
+    }
+
+    suspend fun setCardPin(uuid: String, newPin: String): Boolean {
+        val response = client.post("$baseUrl/set-pin") {
+            contentType(ContentType.Application.Json)
+            setBody(SetPinRequest(uuid, newPin))
+        }
+        return response.status == HttpStatusCode.OK
+    }
+
+    suspend fun lockBusiness(until: String): Boolean {
+        val response = client.post("$baseUrl/lock-business") {
+            contentType(ContentType.Application.Json)
+            setBody(LockBusinessRequest(until))
+        }
+        return response.status == HttpStatusCode.OK
+    }
+
+    suspend fun getBusinessStatus(): BusinessStatusResponse {
+        val response = client.get("$baseUrl/business-status")
+        return if (response.status == HttpStatusCode.OK) {
+            response.body<BusinessStatusResponse>()
+        } else BusinessStatusResponse(false, null)
+    }
+
     fun close() {
         client.close()
     }
