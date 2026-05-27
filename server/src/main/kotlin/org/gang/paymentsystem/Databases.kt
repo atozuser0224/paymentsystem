@@ -24,6 +24,7 @@ fun Application.configureDatabases() {
     )
     val cardService = CardService(database)
     val historyService = HistoryService(cardService)
+    val passwordService = PasswordService(cardService)
 
     routing {
         swaggerUI(path = "swagger") {
@@ -299,6 +300,50 @@ fun Application.configureDatabases() {
         }.describe {
             summary = "카드 삭제"
             description = "해당 UUID의 카드 정보와 모든 거래 기록을 삭제합니다."
+        }
+
+        // ── PIN Verification ──
+        post("/verify-pin") {
+            val req = call.receive<VerifyPinRequest>()
+            if (!isValidNfcFormat(req.uuid)) {
+                call.respond(HttpStatusCode.BadRequest, VerifyResponse(false))
+                return@post
+            }
+            val ok = passwordService.verifyPin(req.uuid, req.pin)
+            call.respond(HttpStatusCode.OK, VerifyResponse(ok))
+        }
+
+        post("/verify-master") {
+            val req = call.receive<VerifyMasterRequest>()
+            val ok = passwordService.verifyMasterPassword(req.password)
+            call.respond(HttpStatusCode.OK, VerifyResponse(ok))
+        }
+
+        post("/set-master") {
+            val req = call.receive<SetMasterRequest>()
+            passwordService.setMasterPassword(req.newPassword)
+            call.respond(HttpStatusCode.OK, VerifyResponse(true))
+        }
+
+        post("/set-pin") {
+            val req = call.receive<SetPinRequest>()
+            if (!isValidNfcFormat(req.uuid)) {
+                call.respond(HttpStatusCode.BadRequest, VerifyResponse(false))
+                return@post
+            }
+            passwordService.setCardPin(req.uuid, req.newPin)
+            call.respond(HttpStatusCode.OK, VerifyResponse(true))
+        }
+
+        post("/lock-business") {
+            val req = call.receive<LockBusinessRequest>()
+            passwordService.lockBusiness(req.until)
+            call.respond(HttpStatusCode.OK, VerifyResponse(true))
+        }
+
+        get("/business-status") {
+            val status = passwordService.getBusinessStatus()
+            call.respond(HttpStatusCode.OK, status)
         }
     }
 }
