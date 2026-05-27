@@ -29,7 +29,12 @@ class PasswordService(private val cardService: CardService) {
         cardService.verifyCardPin(uuid, pin)
 
     suspend fun verifyMasterPassword(password: String): Boolean {
-        val hash = cardService.getConfig("master_password") ?: return false
+        val hash = cardService.getConfig("master_password")
+        if (hash == null) {
+            // 최초 설정: 입력값을 마스터 비밀번호로 저장
+            setMasterPassword(password)
+            return true
+        }
         return org.mindrot.jbcrypt.BCrypt.checkpw(password, hash)
     }
 
