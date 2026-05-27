@@ -84,10 +84,23 @@ class CardService(database: Database) {
         override val primaryKey = PrimaryKey(id)
     }
 
+    object CardPins : Table("card_pins") {
+        val id = integer("id").autoIncrement()
+        val uuidHash = varchar("uuid_hash", length = 100)
+        val pinHash = varchar("pin_hash", length = 200)
+        override val primaryKey = PrimaryKey(id)
+    }
+
+    object SystemConfig : Table("system_config") {
+        val key = varchar("key", length = 50)
+        val value = varchar("value", length = 500)
+        override val primaryKey = PrimaryKey(key)
+    }
+
     init {
         transaction(database) {
             addLogger(StdOutSqlLogger)
-            SchemaUtils.create(Cards, Transactions)
+            SchemaUtils.create(Cards, Transactions, CardPins, SystemConfig)
         }
     }
 
@@ -238,5 +251,43 @@ class CardService(database: Database) {
             totalWithdrawals = totalWdr,
             recentTransactions = recent
         )
+    }
+
+    suspend fun setCardPin(rawUuid: String, pin: String) = dbQuery {
+        val uuidHash = Cards.selectAll()
+            .firstOrNull { BCrypt.checkpw(rawUuid, it[Cards.uuid]) }
+            ?.let { it[Cards.uuid] } ?: return@dbQuery
+        val pinHash = BCrypt.hashpw(pin, BCrypt.gensalt())
+        CardPins.insert {
+            it[CardPins.uuidHash] = uuidHash
+            it[CardPins.pinHash] = pinHash
+        }
+    }
+
+    suspend fun verifyCardPin(rawUuid: String, pin: String): Boolean = dbQuery {
+        val row = Cards.selectAll()
+            .firstOrNull { BCrypt.checkpw(rawUuid, it[Cards.uuid]) }
+            ?: return@dbQuery false
+        CardPins.selectAll()
+            .firstOrNull { it[CardPins.uuidHash] == row[Cards.uuid] }
+            ?.let { BCrypt.checkpw(pin, it[CardPins.pinHash]) }
+            ?: false
+    }
+
+    suspend fun setConfig(key: String, value: String) = dbQuery {
+        SystemConfig.upsert {
+            it[SystemConfig.key] = key
+            it[SystemConfig.value] = value
+        }
+    }
+
+    suspend fun getConfig(key: String): String? = dbQuery {
+        SystemConfig.selectAll()
+            .firstOrNull { it[SystemConfig.key] == key }
+            ?.let { it[SystemConfig.value] }
+    }
+
+    suspend fun deleteConfig(key: String) = dbQuery {
+        SystemConfig.deleteWhere { SystemConfig.key eq key }
     }
 }
