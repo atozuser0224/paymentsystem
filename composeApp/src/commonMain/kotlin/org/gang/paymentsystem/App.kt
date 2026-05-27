@@ -48,6 +48,7 @@ fun App(
     var transactions by remember { mutableStateOf<List<TransactionDTO>>(emptyList()) }
     var logFilter by remember { mutableStateOf(true) } // true = 전체, false = 현재카드
     var narrowTab by remember { mutableStateOf(0) }    // 0 = 결제, 1 = 로그
+    var showAdminPanel by remember { mutableStateOf(false) }
 
     val deviceState by (devicePlatform?.state?.collectAsState()
         ?: remember { mutableStateOf(DeviceUiState.Disconnected) })
@@ -127,6 +128,77 @@ fun App(
         }
     }
 
+    // ── Handle Password Input from Arduino ──
+    LaunchedEffect(deviceState) {
+        if (deviceState is DeviceUiState.PasswordInput) {
+            val pw = deviceState as DeviceUiState.PasswordInput
+            isProcessing = true
+            try {
+                when (pw.mode) {
+                    "MASTER" -> {
+                        val ok = api.verifyMasterPassword(pw.pin)
+                        if (ok) {
+                            showAdminPanel = true
+                            resultText = "관리자 모드"
+                            resultSuccess = true
+                            devicePlatform?.sendResponse(true)
+                        } else {
+                            resultText = "마스터 비밀번호 오류"
+                            resultSuccess = false
+                            devicePlatform?.sendResponse(false)
+                        }
+                    }
+                    "WITHDRAW", "DEPOSIT" -> {
+                        val ok = api.verifyPin(pw.uid, pw.pin)
+                        if (ok) {
+                            val amount = pw.amount.toLongOrNull() ?: 0L
+                            if (amount <= 0) {
+                                resultText = "올바른 금액을 입력하세요"
+                                resultSuccess = false
+                                devicePlatform?.sendResponse(false)
+                            } else {
+                                // Check business lock
+                                val status = api.getBusinessStatus()
+                                if (status.locked) {
+                                    resultText = "영업 종료됨 (${status.until ?: ""})"
+                                    resultSuccess = false
+                                    devicePlatform?.sendResponse(false)
+                                } else {
+                                    // Fetch card info
+                                    val res = api.registerOrFetchCard("", pw.uid, 0L)
+                                    if (res is CardDTO) {
+                                        userName = res.userName
+                                        currentBalance = res.credit
+                                    }
+                                    executeTransaction(
+                                        scope, api, devicePlatform,
+                                        pw.uid, userName, pw.amount, currentLocation,
+                                        pw.mode, currentBalance,
+                                        { r, s -> resultText = r; resultSuccess = s },
+                                        { b -> currentBalance = b },
+                                        { p -> isProcessing = p },
+                                        { refreshTransactions(api, transactions) { transactions = it } }
+                                    )
+                                    return@LaunchedEffect
+                                }
+                            }
+                        } else {
+                            resultText = "카드 PIN 오류"
+                            resultSuccess = false
+                            devicePlatform?.sendResponse(false)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                resultText = "인증 실패: ${e.message}"
+                resultSuccess = false
+                devicePlatform?.sendResponse(false)
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+
     // ── Initial transaction log fetch ──
     LaunchedEffect(Unit) {
         refreshTransactions(api, transactions, { transactions = it })
@@ -176,8 +248,10 @@ fun App(
                         isProcessing = isProcessing,
                         transactions = transactions,
                         logFilter = logFilter,
+                        showAdminPanel = showAdminPanel,
                         onShowDeviceDialogChange = { showDeviceDialog = it },
                         onShowSettingsDialogChange = { showSettingsDialog = it },
+                        onShowAdminPanelChange = { showAdminPanel = it },
                         onServerUrlChange = { serverUrl = it; api.baseUrl = it },
                         onUuidInputChange = { uuidInput = it },
                         onUserNameChange = { userName = it },
@@ -213,10 +287,12 @@ fun App(
                         isProcessing = isProcessing,
                         transactions = transactions,
                         logFilter = logFilter,
+                        showAdminPanel = showAdminPanel,
                         narrowTab = narrowTab,
                         onNarrowTabChange = { narrowTab = it },
                         onShowDeviceDialogChange = { showDeviceDialog = it },
                         onShowSettingsDialogChange = { showSettingsDialog = it },
+                        onShowAdminPanelChange = { showAdminPanel = it },
                         onServerUrlChange = { serverUrl = it; api.baseUrl = it },
                         onUuidInputChange = { uuidInput = it },
                         onUserNameChange = { userName = it },
@@ -322,8 +398,10 @@ private fun WideLayout(
     isProcessing: Boolean,
     transactions: List<TransactionDTO>,
     logFilter: Boolean,
+    showAdminPanel: Boolean,
     onShowDeviceDialogChange: (Boolean) -> Unit,
     onShowSettingsDialogChange: (Boolean) -> Unit,
+    onShowAdminPanelChange: (Boolean) -> Unit,
     onServerUrlChange: (String) -> Unit,
     onUuidInputChange: (String) -> Unit,
     onUserNameChange: (String) -> Unit,
@@ -337,47 +415,56 @@ private fun WideLayout(
     onDeviceListChange: (List<String>) -> Unit,
     onRefreshLogs: () -> Unit
 ) {
-    Row(modifier = Modifier.fillMaxSize()) {
-        // Left: Payment Panel
-        PaymentPanel(
-            devicePlatform = devicePlatform,
-            locationPlatform = locationPlatform,
+    if (showAdminPanel) {
+        AdminPanel(
             api = api,
-            deviceState = deviceState,
-            deviceList = deviceList,
-            uuidInput = uuidInput,
-            userName = userName,
-            amountText = amountText,
-            resultText = resultText,
-            resultSuccess = resultSuccess,
-            currentBalance = currentBalance,
-            currentLocation = currentLocation,
-            isProcessing = isProcessing,
-            modifier = Modifier.weight(0.5f),
-            onShowDeviceDialogChange = onShowDeviceDialogChange,
-            onShowSettingsDialogChange = onShowSettingsDialogChange,
-            onUuidInputChange = onUuidInputChange,
-            onAmountTextChange = onAmountTextChange,
-            onResultChange = onResultChange,
-            onBalanceChange = onBalanceChange,
-            onLocationChange = onLocationChange,
-            onProcessingChange = onProcessingChange,
-            onDeviceListChange = onDeviceListChange,
-            onRefreshLogs = onRefreshLogs
+            isWide = true,
+            onClose = { onShowAdminPanelChange(false) },
+            onResult = { r, s -> onResultChange(r, s) }
         )
+    } else {
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Left: Payment Panel
+            PaymentPanel(
+                devicePlatform = devicePlatform,
+                locationPlatform = locationPlatform,
+                api = api,
+                deviceState = deviceState,
+                deviceList = deviceList,
+                uuidInput = uuidInput,
+                userName = userName,
+                amountText = amountText,
+                resultText = resultText,
+                resultSuccess = resultSuccess,
+                currentBalance = currentBalance,
+                currentLocation = currentLocation,
+                isProcessing = isProcessing,
+                modifier = Modifier.weight(0.5f),
+                onShowDeviceDialogChange = onShowDeviceDialogChange,
+                onShowSettingsDialogChange = onShowSettingsDialogChange,
+                onUuidInputChange = onUuidInputChange,
+                onAmountTextChange = onAmountTextChange,
+                onResultChange = onResultChange,
+                onBalanceChange = onBalanceChange,
+                onLocationChange = onLocationChange,
+                onProcessingChange = onProcessingChange,
+                onDeviceListChange = onDeviceListChange,
+                onRefreshLogs = onRefreshLogs
+            )
 
-        // Divider
-        VerticalDivider(modifier = Modifier.fillMaxHeight(), color = Color(0xFF333333))
+            // Divider
+            VerticalDivider(modifier = Modifier.fillMaxHeight(), color = Color(0xFF333333))
 
-        // Right: Transaction Log Panel
-        TransactionLogPanel(
-            uuidInput = uuidInput,
-            transactions = transactions,
-            logFilter = logFilter,
-            modifier = Modifier.weight(0.5f),
-            onLogFilterChange = onLogFilterChange,
-            onRefreshLogs = onRefreshLogs
-        )
+            // Right: Transaction Log Panel
+            TransactionLogPanel(
+                uuidInput = uuidInput,
+                transactions = transactions,
+                logFilter = logFilter,
+                modifier = Modifier.weight(0.5f),
+                onLogFilterChange = onLogFilterChange,
+                onRefreshLogs = onRefreshLogs
+            )
+        }
     }
 }
 
@@ -406,9 +493,11 @@ private fun NarrowLayout(
     transactions: List<TransactionDTO>,
     logFilter: Boolean,
     narrowTab: Int,
+    showAdminPanel: Boolean,
     onNarrowTabChange: (Int) -> Unit,
     onShowDeviceDialogChange: (Boolean) -> Unit,
     onShowSettingsDialogChange: (Boolean) -> Unit,
+    onShowAdminPanelChange: (Boolean) -> Unit,
     onServerUrlChange: (String) -> Unit,
     onUuidInputChange: (String) -> Unit,
     onUserNameChange: (String) -> Unit,
@@ -422,56 +511,65 @@ private fun NarrowLayout(
     onDeviceListChange: (List<String>) -> Unit,
     onRefreshLogs: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Tab Row
-        TabRow(
-            selectedTabIndex = narrowTab,
-            containerColor = Color(0xFF1A1A1A),
-            contentColor = Color(0xFF4CAF50)
-        ) {
-            Tab(selected = narrowTab == 0, onClick = { onNarrowTabChange(0) }) {
-                Text("결제", modifier = Modifier.padding(12.dp), fontSize = 14.sp)
+    if (showAdminPanel) {
+        AdminPanel(
+            api = api,
+            isWide = false,
+            onClose = { onShowAdminPanelChange(false) },
+            onResult = { r, s -> onResultChange(r, s) }
+        )
+    } else {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Tab Row
+            TabRow(
+                selectedTabIndex = narrowTab,
+                containerColor = Color(0xFF1A1A1A),
+                contentColor = Color(0xFF4CAF50)
+            ) {
+                Tab(selected = narrowTab == 0, onClick = { onNarrowTabChange(0) }) {
+                    Text("결제", modifier = Modifier.padding(12.dp), fontSize = 14.sp)
+                }
+                Tab(selected = narrowTab == 1, onClick = { onNarrowTabChange(1) }) {
+                    Text("거래 로그", modifier = Modifier.padding(12.dp), fontSize = 14.sp)
+                }
             }
-            Tab(selected = narrowTab == 1, onClick = { onNarrowTabChange(1) }) {
-                Text("거래 로그", modifier = Modifier.padding(12.dp), fontSize = 14.sp)
-            }
-        }
 
-        when (narrowTab) {
-            0 -> PaymentPanel(
-                devicePlatform = devicePlatform,
-                locationPlatform = locationPlatform,
-                api = api,
-                deviceState = deviceState,
-                deviceList = deviceList,
-                uuidInput = uuidInput,
-                userName = userName,
-                amountText = amountText,
-                resultText = resultText,
-                resultSuccess = resultSuccess,
-                currentBalance = currentBalance,
-                currentLocation = currentLocation,
-                isProcessing = isProcessing,
-                modifier = Modifier.fillMaxSize(),
-                onShowDeviceDialogChange = onShowDeviceDialogChange,
-                onShowSettingsDialogChange = onShowSettingsDialogChange,
-                onUuidInputChange = onUuidInputChange,
-                onAmountTextChange = onAmountTextChange,
-                onResultChange = onResultChange,
-                onBalanceChange = onBalanceChange,
-                onLocationChange = onLocationChange,
-                onProcessingChange = onProcessingChange,
-                onDeviceListChange = onDeviceListChange,
-                onRefreshLogs = onRefreshLogs
-            )
-            1 -> TransactionLogPanel(
-                uuidInput = uuidInput,
-                transactions = transactions,
-                logFilter = logFilter,
-                modifier = Modifier.fillMaxSize(),
-                onLogFilterChange = onLogFilterChange,
-                onRefreshLogs = onRefreshLogs
-            )
+            when (narrowTab) {
+                0 -> PaymentPanel(
+                    devicePlatform = devicePlatform,
+                    locationPlatform = locationPlatform,
+                    api = api,
+                    deviceState = deviceState,
+                    deviceList = deviceList,
+                    uuidInput = uuidInput,
+                    userName = userName,
+                    amountText = amountText,
+                    resultText = resultText,
+                    resultSuccess = resultSuccess,
+                    currentBalance = currentBalance,
+                    currentLocation = currentLocation,
+                    isProcessing = isProcessing,
+                    modifier = Modifier.fillMaxSize(),
+                    onShowDeviceDialogChange = onShowDeviceDialogChange,
+                    onShowSettingsDialogChange = onShowSettingsDialogChange,
+                    onUuidInputChange = onUuidInputChange,
+                    onAmountTextChange = onAmountTextChange,
+                    onResultChange = onResultChange,
+                    onBalanceChange = onBalanceChange,
+                    onLocationChange = onLocationChange,
+                    onProcessingChange = onProcessingChange,
+                    onDeviceListChange = onDeviceListChange,
+                    onRefreshLogs = onRefreshLogs
+                )
+                1 -> TransactionLogPanel(
+                    uuidInput = uuidInput,
+                    transactions = transactions,
+                    logFilter = logFilter,
+                    modifier = Modifier.fillMaxSize(),
+                    onLogFilterChange = onLogFilterChange,
+                    onRefreshLogs = onRefreshLogs
+                )
+            }
         }
     }
 }
@@ -962,6 +1060,171 @@ private fun executeTransaction(
             onDone()
         } finally {
             setProcessing(false)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// Admin Panel
+// ─────────────────────────────────────────────
+
+@Composable
+private fun AdminPanel(
+    api: PaymentApi,
+    isWide: Boolean,
+    onClose: () -> Unit,
+    onResult: (String, Boolean) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var businessStatus by remember { mutableStateOf<BusinessStatusResponse?>(null) }
+    var lockUntil by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        try { businessStatus = api.getBusinessStatus() } catch (_: Exception) {}
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "관리자 모드",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            TextButton(onClick = onClose) {
+                Text("닫기", color = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Business Status Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (businessStatus?.locked == true)
+                    Color(0xFFB71C1C) else Color(0xFF1B5E20)
+            )
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (businessStatus?.locked == true) "영업 종료" else "운영 중",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                if (businessStatus?.until != null) {
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "~ ${businessStatus!!.until}",
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Business Lock Controls
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("영업 제어", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = lockUntil,
+                    onValueChange = { lockUntil = it },
+                    label = { Text("차단 종료 시간 (예: 22:00)") },
+                    placeholder = { Text("HH:mm") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                if (lockUntil.isNotBlank()) {
+                                    val until = lockUntil + ":00"
+                                    try {
+                                        api.lockBusiness(until)
+                                        onResult("영업 종료 설정됨 (~${lockUntil})", true)
+                                        businessStatus = api.getBusinessStatus()
+                                    } catch (e: Exception) {
+                                        onResult("실패: ${e.message}", false)
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("영업 종료")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    api.lockBusiness("")
+                                    onResult("영업 재개됨", true)
+                                    businessStatus = api.getBusinessStatus()
+                                } catch (e: Exception) {
+                                    onResult("실패: ${e.message}", false)
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("영업 재개")
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // Placeholder buttons for future features
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = { onResult("장비 제어 기능은 준비 중입니다", true) },
+                modifier = Modifier.weight(1f),
+                enabled = false
+            ) {
+                Text("장비 제어", fontSize = 13.sp)
+            }
+            OutlinedButton(
+                onClick = { onResult("보정 기능은 준비 중입니다", true) },
+                modifier = Modifier.weight(1f),
+                enabled = false
+            ) {
+                Text("보정", fontSize = 13.sp)
+            }
         }
     }
 }
