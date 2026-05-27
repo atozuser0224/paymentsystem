@@ -16,7 +16,7 @@ unsigned long lastInputTime = 0;      // 추가: 마지막 입력 시간
 const unsigned long TIMEOUT_MS = 15000;  // 추가: 15초 타임아웃
 String currentCardUid = "";           // 추가: 현재 인증된 카드의 UID
 String pinInput = "";
-String pinMode = "";
+String currentPinMode = "";
 
 // 추가: PN532 객체 (I2C 모드)
 #define PN532_IRQ   (7)
@@ -196,7 +196,7 @@ void handleTimeout() {
 }
 
 void enterPinMode(const String& mode) {
-    pinMode = mode;
+    currentPinMode = mode;
     pinInput = "";
     lastInputTime = millis();
     lcd.clear();
@@ -235,13 +235,13 @@ void handlePinBackspace() {
 
 void submitPin() {
     Serial.print("PASSWD:");
-    Serial.print(pinMode);
+    Serial.print(currentPinMode);
     Serial.print(",");
-    if (pinMode != "MASTER") {
+    if (currentPinMode != "MASTER") {
         Serial.print(currentCardUid);
     }
     Serial.print(",");
-    if (pinMode != "MASTER") {
+    if (currentPinMode != "MASTER") {
         Serial.print(amount);
     }
     Serial.print(",");
@@ -264,7 +264,7 @@ void submitPin() {
         delay(1500);
     }
 
-    pinMode = "";
+    currentPinMode = "";
     pinInput = "";
     cardAuthorized = false;
     currentCardUid = "";
@@ -475,7 +475,7 @@ void loop() {
             Serial.println(F("Repeat received. Here you can repeat the same action as before."));
         } else {
             // PIN 입력 모드 체크
-            if (pinMode.length() > 0) {
+            if (currentPinMode.length() > 0) {
                 if (IrReceiver.decodedIRData.command == 0x16) {
                     handlePinDigit('0');
                 } else if (IrReceiver.decodedIRData.command == 0xC) {
@@ -504,7 +504,7 @@ void loop() {
                     }
                 } else if (IrReceiver.decodedIRData.command == 0x7) {
                     flashLed(LED_RED, 1, 200);
-                    pinMode = "";
+                    currentPinMode = "";
                     pinInput = "";
                     cardAuthorized = false;
                     currentCardUid = "";
