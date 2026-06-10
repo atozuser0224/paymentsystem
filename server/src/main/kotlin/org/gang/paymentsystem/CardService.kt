@@ -86,7 +86,7 @@ class CardService(database: Database) {
 
     object CardPins : Table("card_pins") {
         val id = integer("id").autoIncrement()
-        val uuidHash = varchar("uuid_hash", length = 100)
+        val uuidHash = varchar("uuid_hash", length = 100).uniqueIndex()
         val pinHash = varchar("pin_hash", length = 200)
         override val primaryKey = PrimaryKey(id)
     }
@@ -267,13 +267,25 @@ class CardService(database: Database) {
     }
 
     suspend fun verifyCardPin(rawUuid: String, pin: String): Boolean = dbQuery {
+        if (pin.isBlank()) return@dbQuery false
+
         val row = Cards.selectAll()
             .firstOrNull { BCrypt.checkpw(rawUuid, it[Cards.uuid]) }
             ?: return@dbQuery false
-        CardPins.selectAll()
-            .firstOrNull { it[CardPins.uuidHash] == row[Cards.uuid] }
-            ?.let { BCrypt.checkpw(pin, it[CardPins.pinHash]) }
-            ?: false
+        val uuidHash = row[Cards.uuid]
+        val savedPin = CardPins.selectAll()
+            .firstOrNull { it[CardPins.uuidHash] == uuidHash }
+
+        if (savedPin != null) {
+            return@dbQuery BCrypt.checkpw(pin, savedPin[CardPins.pinHash])
+        }
+
+        // The first PIN entered for a newly registered card becomes its initial PIN.
+        CardPins.insert {
+            it[CardPins.uuidHash] = uuidHash
+            it[pinHash] = BCrypt.hashpw(pin, BCrypt.gensalt())
+        }
+        true
     }
 
     suspend fun setConfig(key: String, value: String) = dbQuery {
