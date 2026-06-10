@@ -97,9 +97,9 @@ class DesktopSerialManager : DevicePlatform {
         _state.value = DeviceUiState.Disconnected
     }
 
-    override fun sendResponse(success: Boolean) {
+    override fun sendResponse(success: Boolean, reason: String?) {
         try {
-            val msg = if (success) "OK\n" else "ERR\n"
+            val msg = if (success) "OK\n" else "${reason ?: "ERR"}\n"
             serialPort?.outputStream?.write(msg.toByteArray())
             serialPort?.outputStream?.flush()
             log("응답 전송: ${msg.trim()}")

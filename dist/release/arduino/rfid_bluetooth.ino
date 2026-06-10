@@ -256,6 +256,14 @@ void submitPin() {
         lcd.print("Authorized!");
         delay(1500);
         // PC handles transaction too, Arduino just returns to IDLE
+    } else if (response.startsWith("LOCKED")) {
+        flashLed(LED_RED, 3, 200);
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Business Closed");
+        lcd.setCursor(0, 1);
+        lcd.print("Try again later");
+        delay(2000);
     } else {
         flashLed(LED_RED, 3, 200);
         lcd.clear();
@@ -424,7 +432,55 @@ void setup() {
     Serial.println(F("at pin " STR(IR_RECEIVE_PIN)));
 }
 
+// 추가: Serial 명령 처리 (데스크톱 → Arduino)
+void processSerialCommand() {
+    if (!Serial.available()) return;
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (!cmd.startsWith("CMD:")) return;
+    cmd = cmd.substring(4);
+
+    if (cmd.startsWith("BEEP:")) {
+        int duration = cmd.substring(5).toInt();
+        if (duration > 0 && duration <= 2000) {
+            playTone(880, duration);
+        }
+    } else if (cmd.startsWith("LED:GREEN:ON")) {
+        digitalWrite(LED_GREEN, HIGH);
+    } else if (cmd.startsWith("LED:GREEN:OFF")) {
+        digitalWrite(LED_GREEN, LOW);
+    } else if (cmd.startsWith("LED:RED:ON")) {
+        digitalWrite(LED_RED, HIGH);
+    } else if (cmd.startsWith("LED:RED:OFF")) {
+        digitalWrite(LED_RED, LOW);
+    } else if (cmd.startsWith("LED:OFF")) {
+        digitalWrite(LED_GREEN, LOW);
+        digitalWrite(LED_RED, LOW);
+    } else if (cmd.startsWith("LCD:")) {
+        String text = cmd.substring(4);
+        int sep = text.indexOf('|');
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        if (sep >= 0) {
+            lcd.print(text.substring(0, sep));
+            lcd.setCursor(0, 1);
+            lcd.print(text.substring(sep + 1));
+        } else {
+            lcd.print(text);
+        }
+    } else if (cmd.startsWith("RESET")) {
+        cardAuthorized = false;
+        amount = "";
+        currentCardUid = "";
+        pinInput = "";
+        currentPinMode = "";
+        flashLed(LED_RED, 1, 100);
+        updateLCD();
+    }
+}
+
 void loop() {
+    processSerialCommand();  // 추가: 데스크톱 명령 처리
 
     // 추가: 카드 미인증 상태일 때만 카드 감지 (쿨다운 적용)
     if (!cardAuthorized) {
@@ -498,7 +554,10 @@ void loop() {
                     handlePinDigit('9');
                 } else if (IrReceiver.decodedIRData.command == 0xD) {
                     handlePinBackspace();
-                } else if (IrReceiver.decodedIRData.command == 0x15) {
+                } else if (
+                    IrReceiver.decodedIRData.command == 0x15 ||
+                    IrReceiver.decodedIRData.command == 0x9
+                ) {
                     if (pinInput.length() > 0) {
                         submitPin();
                     }

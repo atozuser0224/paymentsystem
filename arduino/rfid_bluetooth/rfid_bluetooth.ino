@@ -256,6 +256,14 @@ void submitPin() {
         lcd.print("Authorized!");
         delay(1500);
         // PC handles transaction too, Arduino just returns to IDLE
+    } else if (response.startsWith("LOCKED")) {
+        flashLed(LED_RED, 3, 200);
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Business Closed");
+        lcd.setCursor(0, 1);
+        lcd.print("Try again later");
+        delay(2000);
     } else {
         flashLed(LED_RED, 3, 200);
         lcd.clear();
@@ -546,7 +554,10 @@ void loop() {
                     handlePinDigit('9');
                 } else if (IrReceiver.decodedIRData.command == 0xD) {
                     handlePinBackspace();
-                } else if (IrReceiver.decodedIRData.command == 0x15) {
+                } else if (
+                    IrReceiver.decodedIRData.command == 0x15 ||
+                    IrReceiver.decodedIRData.command == 0x9
+                ) {
                     if (pinInput.length() > 0) {
                         submitPin();
                     }

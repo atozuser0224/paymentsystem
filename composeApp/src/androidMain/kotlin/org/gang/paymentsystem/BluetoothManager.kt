@@ -84,9 +84,9 @@ class BluetoothManager : DevicePlatform {
         _state.value = DeviceUiState.Disconnected
     }
 
-    override fun sendResponse(success: Boolean) {
+    override fun sendResponse(success: Boolean, reason: String?) {
         try {
-            val msg = if (success) "OK\n" else "ERR\n"
+            val msg = if (success) "OK\n" else "${reason ?: "ERR"}\n"
             outputStream?.write(msg.toByteArray())
             outputStream?.flush()
         } catch (e: Exception) {

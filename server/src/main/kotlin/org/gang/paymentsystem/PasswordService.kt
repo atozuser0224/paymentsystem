@@ -23,7 +23,10 @@ data class VerifyResponse(val ok: Boolean)
 @Serializable
 data class BusinessStatusResponse(val locked: Boolean, val until: String?)
 
-class PasswordService(private val cardService: CardService) {
+class PasswordService(
+    private val cardService: CardService,
+    private val clock: java.time.Clock = java.time.Clock.systemDefaultZone()
+) {
 
     suspend fun verifyPin(uuid: String, pin: String): Boolean =
         cardService.verifyCardPin(uuid, pin)
@@ -48,7 +51,9 @@ class PasswordService(private val cardService: CardService) {
     }
 
     suspend fun lockBusiness(until: String) {
-        cardService.setConfig("business_locked_until", until)
+        val now = java.time.LocalDateTime.now(clock)
+        val lockedUntil = parseLockUntil(until, now)
+        cardService.setConfig("business_locked_until", lockedUntil.toString())
     }
 
     suspend fun unlockBusiness() {
@@ -59,17 +64,35 @@ class PasswordService(private val cardService: CardService) {
         val until = cardService.getConfig("business_locked_until")
         if (until != null && until.isNotBlank()) {
             try {
-                val time = java.time.LocalTime.parse(until.trim())
-                val untilDateTime = java.time.LocalDateTime.of(java.time.LocalDate.now(), time)
-                if (untilDateTime.isAfter(java.time.LocalDateTime.now())) {
-                    return BusinessStatusResponse(locked = true, until = until)
+                val untilDateTime = java.time.LocalDateTime.parse(until.trim())
+                if (untilDateTime.isAfter(java.time.LocalDateTime.now(clock))) {
+                    return BusinessStatusResponse(
+                        locked = true,
+                        until = untilDateTime.toLocalTime().toString()
+                    )
                 }
-                // 잠금 시간이 이미 지남 → 자동 해제
             } catch (_: Exception) {
-                // 잘못된 형식 → 정리
+                // Legacy time-only values cannot reliably survive a date change.
             }
             cardService.deleteConfig("business_locked_until")
         }
         return BusinessStatusResponse(locked = false, until = null)
+    }
+
+    private fun parseLockUntil(
+        value: String,
+        now: java.time.LocalDateTime
+    ): java.time.LocalDateTime {
+        val trimmed = value.trim()
+        return try {
+            java.time.LocalDateTime.parse(trimmed)
+        } catch (_: Exception) {
+            val time = java.time.LocalTime.parse(trimmed)
+            var result = java.time.LocalDateTime.of(now.toLocalDate(), time)
+            if (!result.isAfter(now)) {
+                result = result.plusDays(1)
+            }
+            result
+        }
     }
 }

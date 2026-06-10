@@ -22,7 +22,7 @@ interface DevicePlatform {
     fun getAvailableDeviceNames(): List<String>
     fun connect(deviceName: String)
     fun disconnect()
-    fun sendResponse(success: Boolean)
+    fun sendResponse(success: Boolean, reason: String? = null)
     fun sendCommand(command: String) { } // default no-op
 }
 

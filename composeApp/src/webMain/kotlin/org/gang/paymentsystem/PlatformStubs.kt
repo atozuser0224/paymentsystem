@@ -20,7 +20,7 @@ class StubDevicePlatform : DevicePlatform {
         _state.value = DeviceUiState.Disconnected
     }
 
-    override fun sendResponse(success: Boolean) { }
+    override fun sendResponse(success: Boolean, reason: String?) { }
 }
 
 class StubLocationPlatform : LocationPlatform {

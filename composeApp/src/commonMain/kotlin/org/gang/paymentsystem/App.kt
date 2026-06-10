@@ -150,6 +150,14 @@ fun App(
                         }
                     }
                     "WITHDRAW", "DEPOSIT" -> {
+                        val status = api.getBusinessStatus()
+                        if (status.locked) {
+                            resultText = "영업 종료됨 (${status.until ?: ""})"
+                            resultSuccess = false
+                            devicePlatform?.sendResponse(false, "LOCKED")
+                            return@LaunchedEffect
+                        }
+
                         val ok = api.verifyPin(pw.uid, pw.pin)
                         if (ok) {
                             val amount = pw.amount.toLongOrNull() ?: 0L
@@ -158,30 +166,21 @@ fun App(
                                 resultSuccess = false
                                 devicePlatform?.sendResponse(false)
                             } else {
-                                // Check business lock
-                                val status = api.getBusinessStatus()
-                                if (status.locked) {
-                                    resultText = "영업 종료됨 (${status.until ?: ""})"
-                                    resultSuccess = false
-                                    devicePlatform?.sendResponse(false)
-                                } else {
-                                    // Fetch card info
-                                    val res = api.registerOrFetchCard("", pw.uid, 0L)
-                                    if (res is CardDTO) {
-                                        userName = res.userName
-                                        currentBalance = res.credit
-                                    }
-                                    executeTransaction(
-                                        scope, api, devicePlatform,
-                                        pw.uid, userName, pw.amount, currentLocation,
-                                        pw.mode, currentBalance,
-                                        { r, s -> resultText = r; resultSuccess = s },
-                                        { b -> currentBalance = b },
-                                        { p -> isProcessing = p },
-                                        { refreshTransactions(api, transactions) { transactions = it } }
-                                    )
-                                    return@LaunchedEffect
+                                val res = api.registerOrFetchCard("", pw.uid, 0L)
+                                if (res is CardDTO) {
+                                    userName = res.userName
+                                    currentBalance = res.credit
                                 }
+                                executeTransaction(
+                                    scope, api, devicePlatform,
+                                    pw.uid, userName, pw.amount, currentLocation,
+                                    pw.mode, currentBalance,
+                                    { r, s -> resultText = r; resultSuccess = s },
+                                    { b -> currentBalance = b },
+                                    { p -> isProcessing = p },
+                                    { refreshTransactions(api, transactions) { transactions = it } }
+                                )
+                                return@LaunchedEffect
                             }
                         } else {
                             resultText = "카드 PIN 오류"
