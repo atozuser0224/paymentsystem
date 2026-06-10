@@ -1128,6 +1128,17 @@ private fun AdminPanel(
         try { maxAmount = api.getConfig("max_amount") ?: "" } catch (_: Exception) {}
     }
 
+    LaunchedEffect(businessStatus?.locked) {
+        while (businessStatus?.locked == true) {
+            kotlinx.coroutines.delay(1_000)
+            try {
+                businessStatus = api.getBusinessStatus()
+            } catch (_: Exception) {
+                // Keep the last known state during a temporary network failure.
+            }
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally

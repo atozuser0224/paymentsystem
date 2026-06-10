@@ -37,4 +37,30 @@ class PasswordServiceTest {
         assertFalse(afterExpiry.getBusinessStatus().locked)
         assertFalse(afterExpiry.getBusinessStatus().locked)
     }
+
+    @Test
+    fun businessLockExpiresExactlyAtSelectedMinute() = runBlocking {
+        val cardService = CardService(
+            Database.connect(
+                url = "jdbc:h2:mem:business-lock-minute-test;DB_CLOSE_DELAY=-1",
+                user = "root",
+                driver = "org.h2.Driver",
+                password = ""
+            )
+        )
+        val zone = ZoneId.of("Asia/Seoul")
+        val at1137 = PasswordService(
+            cardService,
+            Clock.fixed(Instant.parse("2026-06-10T02:37:00Z"), zone)
+        )
+
+        at1137.lockBusiness("11:38")
+        assertTrue(at1137.getBusinessStatus().locked)
+
+        val at1138 = PasswordService(
+            cardService,
+            Clock.fixed(Instant.parse("2026-06-10T02:38:00Z"), zone)
+        )
+        assertFalse(at1138.getBusinessStatus().locked)
+    }
 }
