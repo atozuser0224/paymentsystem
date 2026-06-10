@@ -424,6 +424,7 @@ private fun WideLayout(
             api = api,
             isWide = true,
             uuidInput = uuidInput,
+            devicePlatform = devicePlatform,
             onClose = { onShowAdminPanelChange(false) },
             onResult = { r, s -> onResultChange(r, s) }
         )
@@ -524,6 +525,7 @@ private fun NarrowLayout(
             api = api,
             isWide = false,
             uuidInput = uuidInput,
+            devicePlatform = devicePlatform,
             onClose = { onShowAdminPanelChange(false) },
             onResult = { r, s -> onResultChange(r, s) }
         )
@@ -1060,6 +1062,16 @@ private fun executeTransaction(
     scope.launch {
         setProcessing(true)
         try {
+            // Check business lock
+            try {
+                val status = api.getBusinessStatus()
+                if (status.locked) {
+                    setResult("영업 종료됨 (~${status.until ?: ""})", false)
+                    bt?.sendResponse(false)
+                    return@launch
+                }
+            } catch (_: Exception) {} // network error → proceed (fail open for safety)
+
             val req = TransactionRequest(
                 uuid = uuid,
                 userName = userName.ifEmpty { "사용자" },
@@ -1095,6 +1107,7 @@ private fun AdminPanel(
     api: PaymentApi,
     isWide: Boolean,
     uuidInput: String,
+    devicePlatform: DevicePlatform?,
     onClose: () -> Unit,
     onResult: (String, Boolean) -> Unit
 ) {
@@ -1106,9 +1119,14 @@ private fun AdminPanel(
     var cardUidInput by remember { mutableStateOf(uuidInput) }
     var newCardPin by remember { mutableStateOf("") }
     var cardPinResult by remember { mutableStateOf<String?>(null) }
+    var showDeviceControl by remember { mutableStateOf(false) }
+    var showCalibration by remember { mutableStateOf(false) }
+    var maxAmount by remember { mutableStateOf("") }
+    var calibResult by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         try { businessStatus = api.getBusinessStatus() } catch (_: Exception) {}
+        try { maxAmount = api.getConfig("max_amount") ?: "" } catch (_: Exception) {}
     }
 
     Column(
@@ -1216,7 +1234,7 @@ private fun AdminPanel(
                         onClick = {
                             scope.launch {
                                 try {
-                                    api.lockBusiness("")
+                                    api.unlockBusiness()
                                     onResult("영업 재개됨", true)
                                     businessStatus = api.getBusinessStatus()
                                 } catch (e: Exception) {
@@ -1362,26 +1380,121 @@ private fun AdminPanel(
 
         Spacer(Modifier.height(12.dp))
 
-        // Placeholder buttons for future features
+        // Device Control + Calibration
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedButton(
-                onClick = { onResult("장비 제어 기능은 준비 중입니다", true) },
+                onClick = { showDeviceControl = true },
                 modifier = Modifier.weight(1f),
-                enabled = false
+                enabled = devicePlatform != null && devicePlatform.state.value is DeviceUiState.Connected
             ) {
                 Text("장비 제어", fontSize = 13.sp)
             }
             OutlinedButton(
-                onClick = { onResult("보정 기능은 준비 중입니다", true) },
-                modifier = Modifier.weight(1f),
-                enabled = false
+                onClick = { showCalibration = true },
+                modifier = Modifier.weight(1f)
             ) {
                 Text("보정", fontSize = 13.sp)
             }
         }
+    }
+
+    // ── Device Control Dialog ──
+    if (showDeviceControl) {
+        AlertDialog(
+            onDismissRequest = { showDeviceControl = false },
+            title = { Text("장비 제어") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Arduino 하드웨어 테스트", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedButton(onClick = { devicePlatform?.sendCommand("BEEP:200") }) {
+                            Text("부저", fontSize = 12.sp)
+                        }
+                        OutlinedButton(onClick = { devicePlatform?.sendCommand("LED:GREEN:ON") }) {
+                            Text("🟢 ON", fontSize = 12.sp)
+                        }
+                        OutlinedButton(onClick = { devicePlatform?.sendCommand("LED:GREEN:OFF") }) {
+                            Text("🟢 OFF", fontSize = 12.sp)
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedButton(onClick = { devicePlatform?.sendCommand("LED:RED:ON") }) {
+                            Text("🔴 ON", fontSize = 12.sp)
+                        }
+                        OutlinedButton(onClick = { devicePlatform?.sendCommand("LED:RED:OFF") }) {
+                            Text("🔴 OFF", fontSize = 12.sp)
+                        }
+                        OutlinedButton(onClick = { devicePlatform?.sendCommand("LED:OFF") }) {
+                            Text("LED OFF", fontSize = 12.sp)
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { devicePlatform?.sendCommand("LCD:Hello|PaymentSystem") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("LCD 테스트", fontSize = 12.sp)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            devicePlatform?.sendCommand("RESET")
+                            showDeviceControl = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Arduino 리셋", fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showDeviceControl = false }) { Text("닫기") } }
+        )
+    }
+
+    // ── Calibration Dialog ──
+    if (showCalibration) {
+        AlertDialog(
+            onDismissRequest = { showCalibration = false },
+            title = { Text("보정 / 설정") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("거래 한도", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = maxAmount,
+                        onValueChange = { maxAmount = it.filter { c -> c.isDigit() } },
+                        label = { Text("최대 거래 금액") },
+                        placeholder = { Text("0 = 제한 없음") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (calibResult != null) {
+                        Text(
+                            calibResult!!,
+                            fontSize = 12.sp,
+                            color = if (calibResult!!.startsWith("저장")) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        try {
+                            api.setConfig("max_amount", maxAmount)
+                            calibResult = "저장 완료"
+                        } catch (e: Exception) {
+                            calibResult = "실패: ${e.message}"
+                        }
+                    }
+                }) { Text("저장") }
+            },
+            dismissButton = { TextButton(onClick = { showCalibration = false }) { Text("닫기") } }
+        )
     }
 }
 

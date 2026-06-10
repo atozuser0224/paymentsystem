@@ -164,6 +164,12 @@ fun Application.configureDatabases() {
                 call.respond(HttpStatusCode.BadRequest, "need valid uid code please try another code ")
                 return@post
             }
+            // Check business lock
+            val status = passwordService.getBusinessStatus()
+            if (status.locked) {
+                call.respond(HttpStatusCode.Locked, "영업 종료됨 (~${status.until})")
+                return@post
+            }
             val card = cardService.readByUuid(data.uuid)
             card?.let {
                 if (it.credit < data.credit) {
@@ -200,6 +206,12 @@ fun Application.configureDatabases() {
                 call.respond(HttpStatusCode.BadRequest, "need valid uid code please try another code ")
                 return@post
             }
+            // Check business lock
+            val status = passwordService.getBusinessStatus()
+            if (status.locked) {
+                call.respond(HttpStatusCode.Locked, "영업 종료됨 (~${status.until})")
+                return@post
+            }
             val card = cardService.readByUuid(data.uuid)
             card?.let {
                 val update = it.apply { credit += data.credit }
@@ -230,6 +242,13 @@ fun Application.configureDatabases() {
 
             if (!isValidNfcFormat(req.uuid)) {
                 call.respond(HttpStatusCode.BadRequest, "need valid uid code")
+                return@post
+            }
+
+            // Check business lock
+            val status = passwordService.getBusinessStatus()
+            if (status.locked) {
+                call.respond(HttpStatusCode.Locked, "영업 종료됨 (~${status.until})")
                 return@post
             }
 
@@ -363,7 +382,11 @@ fun Application.configureDatabases() {
 
         post("/lock-business") {
             val req = call.receive<LockBusinessRequest>()
-            passwordService.lockBusiness(req.until)
+            if (req.until.isBlank()) {
+                passwordService.unlockBusiness()
+            } else {
+                passwordService.lockBusiness(req.until)
+            }
             call.respond(HttpStatusCode.OK, VerifyResponse(true))
         }.describe {
             summary = "영업 잠금"
@@ -371,6 +394,39 @@ fun Application.configureDatabases() {
             responses {
                 HttpStatusCode.OK { description = "VerifyResponse(true)" }
             }
+        }
+
+        post("/unlock-business") {
+            passwordService.unlockBusiness()
+            call.respond(HttpStatusCode.OK, VerifyResponse(true))
+        }.describe {
+            summary = "영업 잠금 해제"
+            description = "영업 잠금을 즉시 해제합니다."
+        }
+
+        // ── System Config ──
+        get("/config/{key}") {
+            val key = call.parameters["key"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+            val value = cardService.getConfig(key)
+            if (value != null) {
+                call.respond(HttpStatusCode.OK, mapOf("key" to key, "value" to value))
+            } else {
+                call.respond(HttpStatusCode.NotFound)
+            }
+        }.describe {
+            summary = "설정값 조회"
+            description = "시스템 설정 값을 조회합니다."
+        }
+
+        post("/config") {
+            val req = call.receive<Map<String, String>>()
+            val key = req["key"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+            val value = req["value"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+            cardService.setConfig(key, value)
+            call.respond(HttpStatusCode.OK, mapOf("key" to key, "value" to value))
+        }.describe {
+            summary = "설정값 저장"
+            description = "시스템 설정 값을 저장합니다."
         }
 
         get("/business-status") {

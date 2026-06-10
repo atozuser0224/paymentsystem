@@ -110,6 +110,19 @@ class DesktopSerialManager : DevicePlatform {
         }
     }
 
+    override fun sendCommand(command: String) {
+        try {
+            val msg = "CMD:$command\n"
+            serialPort?.outputStream?.write(msg.toByteArray())
+            serialPort?.outputStream?.flush()
+            log("명령 전송: $command")
+        } catch (e: Exception) {
+            val err = "명령 전송 실패: ${e.message}"
+            log("ERROR: $err")
+            _state.value = DeviceUiState.Error(err)
+        }
+    }
+
     private fun isTimeoutException(e: Exception): Boolean {
         val name = e.javaClass.simpleName.lowercase()
         val msg = e.message?.lowercase() ?: ""

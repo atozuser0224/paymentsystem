@@ -59,10 +59,14 @@ class PasswordService(private val cardService: CardService) {
         val until = cardService.getConfig("business_locked_until")
         if (until != null) {
             try {
-                val untilTime = java.time.LocalDateTime.parse(until)
-                if (java.time.LocalDateTime.now().isBefore(untilTime)) {
-                    return BusinessStatusResponse(locked = true, until = until)
+                val today = java.time.LocalDate.now()
+                val time = java.time.LocalTime.parse(until) // "22:00" or "22:00:00"
+                var untilDateTime = java.time.LocalDateTime.of(today, time)
+                // overnight: if the time has already passed today, assume tomorrow
+                if (untilDateTime.isBefore(java.time.LocalDateTime.now())) {
+                    untilDateTime = untilDateTime.plusDays(1)
                 }
+                return BusinessStatusResponse(locked = true, until = until)
             } catch (_: Exception) {}
             cardService.deleteConfig("business_locked_until")
         }

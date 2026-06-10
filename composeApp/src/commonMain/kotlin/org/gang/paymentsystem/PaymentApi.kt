@@ -146,6 +146,33 @@ class PaymentApi(var baseUrl: String = "http://10.0.2.2:8080") {
         } else BusinessStatusResponse(false, null)
     }
 
+    suspend fun unlockBusiness(): Boolean {
+        val response = client.post("$baseUrl/unlock-business") {
+            contentType(ContentType.Application.Json)
+        }
+        return response.status == HttpStatusCode.OK
+    }
+
+    suspend fun getConfig(key: String): String? {
+        try {
+            val response = client.get("$baseUrl/config/$key")
+            if (response.status == HttpStatusCode.OK) {
+                @Suppress("UNCHECKED_CAST")
+                val map = response.body<Map<String, String>>()
+                return map["value"]
+            }
+        } catch (_: Exception) {}
+        return null
+    }
+
+    suspend fun setConfig(key: String, value: String): Boolean {
+        val response = client.post("$baseUrl/config") {
+            contentType(ContentType.Application.Json)
+            setBody(mapOf("key" to key, "value" to value))
+        }
+        return response.status == HttpStatusCode.OK
+    }
+
     fun close() {
         client.close()
     }

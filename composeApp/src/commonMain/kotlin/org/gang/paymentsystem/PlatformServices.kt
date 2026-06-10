@@ -23,6 +23,7 @@ interface DevicePlatform {
     fun connect(deviceName: String)
     fun disconnect()
     fun sendResponse(success: Boolean)
+    fun sendCommand(command: String) { } // default no-op
 }
 
 interface LocationPlatform {
