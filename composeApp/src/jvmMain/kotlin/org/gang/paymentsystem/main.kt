@@ -19,9 +19,12 @@ fun main() = application {
         title = "RFID 결제 단말기",
         state = rememberWindowState(
             position = WindowPosition(Alignment.Center),
-            size = DpSize(480.dp, 720.dp)
+            size = DpSize(640.dp, 820.dp)
         )
     ) {
-        App(devicePlatform = serialManager)
+        App(
+            devicePlatform = serialManager,
+            allowDirectAdminAccess = true
+        )
     }
 }

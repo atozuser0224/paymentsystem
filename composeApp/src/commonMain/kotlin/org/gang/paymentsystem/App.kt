@@ -27,7 +27,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun App(
     devicePlatform: DevicePlatform? = null,
-    locationPlatform: LocationPlatform? = null
+    locationPlatform: LocationPlatform? = null,
+    allowDirectAdminAccess: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
     val api = remember { PaymentApi() }
@@ -249,6 +250,7 @@ fun App(
                         transactions = transactions,
                         logFilter = logFilter,
                         showAdminPanel = showAdminPanel,
+                        allowDirectAdminAccess = allowDirectAdminAccess,
                         onShowDeviceDialogChange = { showDeviceDialog = it },
                         onShowSettingsDialogChange = { showSettingsDialog = it },
                         onShowAdminPanelChange = { showAdminPanel = it },
@@ -288,6 +290,7 @@ fun App(
                         transactions = transactions,
                         logFilter = logFilter,
                         showAdminPanel = showAdminPanel,
+                        allowDirectAdminAccess = allowDirectAdminAccess,
                         narrowTab = narrowTab,
                         onNarrowTabChange = { narrowTab = it },
                         onShowDeviceDialogChange = { showDeviceDialog = it },
@@ -399,6 +402,7 @@ private fun WideLayout(
     transactions: List<TransactionDTO>,
     logFilter: Boolean,
     showAdminPanel: Boolean,
+    allowDirectAdminAccess: Boolean,
     onShowDeviceDialogChange: (Boolean) -> Unit,
     onShowSettingsDialogChange: (Boolean) -> Unit,
     onShowAdminPanelChange: (Boolean) -> Unit,
@@ -440,9 +444,11 @@ private fun WideLayout(
                 currentBalance = currentBalance,
                 currentLocation = currentLocation,
                 isProcessing = isProcessing,
+                allowDirectAdminAccess = allowDirectAdminAccess,
                 modifier = Modifier.weight(0.5f),
                 onShowDeviceDialogChange = onShowDeviceDialogChange,
                 onShowSettingsDialogChange = onShowSettingsDialogChange,
+                onShowAdminPanelChange = onShowAdminPanelChange,
                 onUuidInputChange = onUuidInputChange,
                 onAmountTextChange = onAmountTextChange,
                 onResultChange = onResultChange,
@@ -495,6 +501,7 @@ private fun NarrowLayout(
     logFilter: Boolean,
     narrowTab: Int,
     showAdminPanel: Boolean,
+    allowDirectAdminAccess: Boolean,
     onNarrowTabChange: (Int) -> Unit,
     onShowDeviceDialogChange: (Boolean) -> Unit,
     onShowSettingsDialogChange: (Boolean) -> Unit,
@@ -551,9 +558,11 @@ private fun NarrowLayout(
                     currentBalance = currentBalance,
                     currentLocation = currentLocation,
                     isProcessing = isProcessing,
+                    allowDirectAdminAccess = allowDirectAdminAccess,
                     modifier = Modifier.fillMaxSize(),
                     onShowDeviceDialogChange = onShowDeviceDialogChange,
                     onShowSettingsDialogChange = onShowSettingsDialogChange,
+                    onShowAdminPanelChange = onShowAdminPanelChange,
                     onUuidInputChange = onUuidInputChange,
                     onAmountTextChange = onAmountTextChange,
                     onResultChange = onResultChange,
@@ -595,9 +604,11 @@ private fun PaymentPanel(
     currentBalance: Long?,
     currentLocation: LocationData?,
     isProcessing: Boolean,
+    allowDirectAdminAccess: Boolean,
     modifier: Modifier = Modifier,
     onShowDeviceDialogChange: (Boolean) -> Unit,
     onShowSettingsDialogChange: (Boolean) -> Unit,
+    onShowAdminPanelChange: (Boolean) -> Unit,
     onUuidInputChange: (String) -> Unit,
     onAmountTextChange: (String) -> Unit,
     onResultChange: (String, Boolean) -> Unit,
@@ -626,6 +637,15 @@ private fun PaymentPanel(
                 color = MaterialTheme.colorScheme.onBackground
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (allowDirectAdminAccess) {
+                    TextButton(
+                        onClick = { onShowAdminPanelChange(true) },
+                        contentPadding = PaddingValues(4.dp)
+                    ) {
+                        Text("관리자", fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
                 TextButton(onClick = { onShowSettingsDialogChange(true) }, contentPadding = PaddingValues(4.dp)) {
                     Text("⚙", fontSize = 16.sp)
                 }
