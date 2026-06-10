@@ -57,17 +57,17 @@ class PasswordService(private val cardService: CardService) {
 
     suspend fun getBusinessStatus(): BusinessStatusResponse {
         val until = cardService.getConfig("business_locked_until")
-        if (until != null) {
+        if (until != null && until.isNotBlank()) {
             try {
-                val today = java.time.LocalDate.now()
-                val time = java.time.LocalTime.parse(until) // "22:00" or "22:00:00"
-                var untilDateTime = java.time.LocalDateTime.of(today, time)
-                // overnight: if the time has already passed today, assume tomorrow
-                if (untilDateTime.isBefore(java.time.LocalDateTime.now())) {
-                    untilDateTime = untilDateTime.plusDays(1)
+                val time = java.time.LocalTime.parse(until.trim())
+                val untilDateTime = java.time.LocalDateTime.of(java.time.LocalDate.now(), time)
+                if (untilDateTime.isAfter(java.time.LocalDateTime.now())) {
+                    return BusinessStatusResponse(locked = true, until = until)
                 }
-                return BusinessStatusResponse(locked = true, until = until)
-            } catch (_: Exception) {}
+                // 잠금 시간이 이미 지남 → 자동 해제
+            } catch (_: Exception) {
+                // 잘못된 형식 → 정리
+            }
             cardService.deleteConfig("business_locked_until")
         }
         return BusinessStatusResponse(locked = false, until = null)

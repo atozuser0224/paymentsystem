@@ -277,7 +277,8 @@ class CardService(database: Database) {
     }
 
     suspend fun setConfig(key: String, value: String) = dbQuery {
-        SystemConfig.upsert {
+        SystemConfig.deleteWhere { SystemConfig.key eq key }
+        SystemConfig.insert {
             it[SystemConfig.key] = key
             it[SystemConfig.value] = value
         }
